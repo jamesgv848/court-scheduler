@@ -326,19 +326,7 @@ export default function SchedulePage() {
         </div>
 
         <aside>
-          <div className="card">
-            <h4>Pairing Heatmap</h4>
-            <p style={{ color: "#666" }}>
-              Shows how often players teamed together (higher = more frequent).
-            </p>
-            <div style={{ marginTop: 10 }}>
-              <PairingHeatmap
-                players={players}
-                pairingMap={pairingMap}
-                opponentMap={opponentMap}
-              />
-            </div>
-          </div>
+          {/* Pairing heatmap temporarily hidden */}
 
           <div className="card" style={{ marginTop: 12 }}>
             <h4>Help</h4>

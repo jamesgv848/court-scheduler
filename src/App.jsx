@@ -12,10 +12,10 @@ export default function App() {
   return (
     <div style={{ padding: "12px 20px" }}>
       <nav style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+        <Link to="/auth">SignUp</Link>
         <Link to="/">Schedule</Link>
         <Link to="/scoreboard">Scoreboard</Link>
         <Link to="/players">Players</Link>
-        <Link to="/auth">Auth</Link>
       </nav>
 
       <Routes>
