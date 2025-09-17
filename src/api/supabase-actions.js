@@ -2,20 +2,24 @@
 import { supabase } from "../supabaseClient";
 
 export async function saveScheduleToDb(schedule, matchDate) {
+  // Do NOT include the frontend id like "m_1" — let DB generate uuid
   const rows = schedule.map((s) => ({
-    id: s.id,
+    // id: omit this field so DB uses default gen_random_uuid()
     match_date:
       matchDate instanceof Date
         ? matchDate.toISOString().slice(0, 10)
         : matchDate,
     court: s.court,
     match_index: s.match_index,
-    player_ids: s.players,
+    player_ids: s.players, // array of uuids
     winner: null,
     created_at: new Date().toISOString(),
   }));
 
-  const { data, error } = await supabase.from("matches").insert(rows);
+  const { data, error } = await supabase
+    .from("matches")
+    .insert(rows)
+    .select("*");
   return { data, error };
 }
 
@@ -81,4 +85,57 @@ export async function fetchPlayerTotals() {
     .select("*")
     .order("total_points", { ascending: false });
   return { data, error };
+}
+
+export function subscribeToScores(onChange) {
+  return supabase
+    .channel("public:scores")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "scores" },
+      onChange
+    )
+    .subscribe();
+}
+
+// NEW: totals for a specific date (points recorded_at on that date)
+// returns rows: { player_id, name, points_on_date }
+export async function fetchPlayerTotalsForDate(dateStr) {
+  // dateStr is 'YYYY-MM-DD'
+  const { data, error } = await supabase.rpc("player_totals_for_date", {
+    p_date: dateStr,
+  });
+  // If you prefer a SQL SELECT instead of RPC, use supabase.from('scores').select(...) with aggregate,
+  // but using an RPC keeps SQL tidy (RPC DDL below if needed).
+  return { data, error };
+}
+
+export async function deleteScheduleForDate(dateStr) {
+  // 1) fetch match ids for date
+  const { data: matches, error: fetchErr } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("match_date", dateStr);
+
+  if (fetchErr) return { data: null, error: fetchErr };
+
+  const ids = (matches || []).map((r) => r.id);
+  if (ids.length === 0) return { data: [], error: null };
+
+  // 2) delete scores for those match ids (if any)
+  const { error: delScoresErr } = await supabase
+    .from("scores")
+    .delete()
+    .in("match_id", ids);
+
+  if (delScoresErr) return { data: null, error: delScoresErr };
+
+  // 3) delete matches for that date (by ids)
+  const { data: deletedMatches, error: delMatchesErr } = await supabase
+    .from("matches")
+    .delete()
+    .in("id", ids)
+    .select("*"); // optional: return deleted rows
+
+  return { data: deletedMatches, error: delMatchesErr };
 }

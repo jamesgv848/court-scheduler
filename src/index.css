@@ -102,6 +102,16 @@ body {
   font-size: 0.9rem;
 }
 
+.btn.danger {
+  background-color: #dc2626; /* red-600 */
+  color: #fff;
+  border: none;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background-color: #b91c1c; /* darker red */
+}
+
 /* Layout */
 .container {
   max-width: 1100px;
@@ -173,10 +183,13 @@ body {
   cursor: pointer;
 }
 .undo-btn {
-  background: transparent;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  padding: 6px 10px;
-  border-radius: 8px;
+  background-color: #dc2626; /* red */
+  color: #fff;
+  border: none;
+}
+
+.undo-btn:hover:not(:disabled) {
+  background-color: #b91c1c;
 }
 
 /* Scoreboard */
