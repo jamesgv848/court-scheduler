@@ -78,14 +78,17 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 14px;
+  padding: 8px 12px;
   border-radius: 8px;
-  border: 0;
+  border: 1px solid transparent;
   cursor: pointer;
   font-weight: 600;
-  background: var(--primary);
-  color: white;
-  box-shadow: 0 6px 12px rgba(11, 113, 208, 0.18);
+  background: #f3f4f6;
+  color: #111827;
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .btn.secondary {
   background: #fff;

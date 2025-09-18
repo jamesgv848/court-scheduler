@@ -6,6 +6,7 @@ import ScoreboardPage from "./pages/ScoreboardPage";
 import PlayersPage from "./pages/PlayersPage";
 import AuthPage from "./pages/AuthPage";
 import ProtectedRoute from "./components/ProtectedRoute";
+import PairingStats from "./pages/PairingStats";
 
 export default function App() {
   // ✅ export default
@@ -16,6 +17,7 @@ export default function App() {
         <Link to="/">Schedule</Link>
         <Link to="/scoreboard">Scoreboard</Link>
         <Link to="/players">Players</Link>
+        <Link to="/pairing-stats">Pairing Stats</Link>
       </nav>
 
       <Routes>
@@ -41,6 +43,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <PlayersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pairing-stats"
+          element={
+            <ProtectedRoute>
+              <PairingStats />
             </ProtectedRoute>
           }
         />

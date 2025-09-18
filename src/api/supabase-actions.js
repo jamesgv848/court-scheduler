@@ -139,3 +139,14 @@ export async function deleteScheduleForDate(dateStr) {
 
   return { data: deletedMatches, error: delMatchesErr };
 }
+
+// fetch pairing statistics (player UUID pairs with totals/wins/losses)
+export async function fetchPairingStats() {
+  const { data, error } = await supabase.rpc("pairing_stats");
+  return { data, error };
+}
+
+export async function fetchPairingStatsSimple() {
+  const { data, error } = await supabase.rpc("pairing_stats_simple");
+  return { data, error };
+}
