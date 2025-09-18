@@ -233,3 +233,90 @@ body {
     flex-wrap: wrap;
   }
 }
+
+/* Header - make nav links look like buttons and push signup to right */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+/* left area for logo + nav */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* nav button style */
+.nav-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.nav-button {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  color: #0b71d0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-button:hover {
+  background: rgba(11, 113, 208, 0.08);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(11, 113, 208, 0.06);
+}
+
+/* active nav (optional) */
+.nav-button.active {
+  background: #0b71d0;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(11, 113, 208, 0.12);
+}
+
+/* signup on right */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* signup button style */
+.signup-btn {
+  background: #0b71d0;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(11, 113, 208, 0.12);
+}
+.signup-btn.secondary {
+  background: transparent;
+  color: #0b71d0;
+  border: 1px solid rgba(11, 113, 208, 0.15);
+}
+
+/* small responsive adjustments */
+@media (max-width: 720px) {
+  .nav-buttons {
+    display: none;
+  } /* keep header tidy on mobile */
+}

@@ -1,160 +1,120 @@
 // src/pages/ScoreboardPage.jsx
 import React, { useEffect, useState, useCallback } from "react";
-import { supabase } from "../supabaseClient";
 import {
   fetchPlayerTotals,
-  fetchPlayerTotalsForDate,
+  fetchPlayerTotalsByDate,
 } from "../api/supabase-actions";
 
 export default function ScoreboardPage() {
-  const todayISO = new Date().toISOString().slice(0, 10);
-  const [rowsAll, setRowsAll] = useState([]);
-  const [rowsDate, setRowsDate] = useState([]);
-  const [loadingAll, setLoadingAll] = useState(false);
+  const [overallRows, setOverallRows] = useState([]);
+  const [dateRows, setDateRows] = useState([]);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [loadingOverall, setLoadingOverall] = useState(false);
   const [loadingDate, setLoadingDate] = useState(false);
-  const [date, setDate] = useState(todayISO);
+  const [error, setError] = useState(null);
 
-  const loadAll = useCallback(async () => {
-    setLoadingAll(true);
+  const loadOverall = useCallback(async () => {
+    setLoadingOverall(true);
     try {
-      const { data, error } = await fetchPlayerTotals();
-      if (error) {
-        console.error("fetchPlayerTotals error", error);
-        return;
-      }
-      const normalized = (data || []).map((r) => ({
-        player_id: r.id,
-        name: r.name,
-        total_points: Number(r.total_points ?? 0),
-      }));
-      setRowsAll(normalized);
+      const { data, error } = await fetchPlayerTotals(true);
+      if (error) throw error;
+      // normalize
+      setOverallRows(
+        (data || []).map((r) => ({
+          id: r.id || r.player_id || r.id,
+          name: r.name,
+          total_points: Number(r.total_points ?? r.total_points) || 0,
+        }))
+      );
     } catch (err) {
-      console.error("loadAll error", err);
+      console.error("loadOverall error", err);
+      setError(err);
     } finally {
-      setLoadingAll(false);
+      setLoadingOverall(false);
     }
   }, []);
 
-  const loadDate = useCallback(
-    async (d = date) => {
-      if (!d) return;
-      setLoadingDate(true);
-      try {
-        const { data, error } = await fetchPlayerTotalsForDate(d);
-        if (error) {
-          console.error("fetchPlayerTotalsForDate error", error);
-          setRowsDate([]);
-          return;
-        }
-        // RPC returns player_id,name,points_on_date
-        const normalized = (data || []).map((r) => ({
-          player_id: r.player_id || r.id,
+  const loadDate = useCallback(async (dateStr) => {
+    if (!dateStr) {
+      setDateRows([]);
+      return;
+    }
+    setLoadingDate(true);
+    try {
+      const { data, error } = await fetchPlayerTotalsByDate(dateStr);
+      if (error) throw error;
+      setDateRows(
+        (data || []).map((r) => ({
+          id: r.id,
           name: r.name,
-          points_on_date: Number(r.points_on_date ?? 0),
-        }));
-        setRowsDate(normalized);
-      } catch (err) {
-        console.error("loadDate error", err);
-      } finally {
-        setLoadingDate(false);
-      }
-    },
-    [date]
-  );
+          total_points: Number(r.total_points || 0),
+        }))
+      );
+    } catch (err) {
+      console.error("loadDate error", err);
+      setError(err);
+    } finally {
+      setLoadingDate(false);
+    }
+  }, []);
 
   useEffect(() => {
-    loadAll();
-    loadDate(date);
+    loadOverall();
+  }, [loadOverall]);
 
-    // realtime subscription & window event fallback
-    const channel = supabase
-      .channel("public:scoreboard")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "scores" },
-        (payload) => {
-          console.debug("scores realtime event", payload);
-          loadAll();
-          loadDate(date);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "matches" },
-        (payload) => {
-          console.debug("matches realtime event", payload);
-          loadAll();
-          loadDate(date);
-        }
-      )
-      .subscribe();
-
-    const handler = () => {
-      console.debug("scores-changed event received (window)");
-      loadAll();
-      loadDate(date);
-    };
-    window.addEventListener("scores-changed", handler);
-
-    return () => {
-      try {
-        supabase.removeChannel(channel);
-      } catch (e) {
-        /* ignore */
-      }
-      window.removeEventListener("scores-changed", handler);
-    };
-  }, [loadAll, loadDate, date]);
+  useEffect(() => {
+    if (selectedDate) loadDate(selectedDate);
+    else setDateRows([]);
+  }, [selectedDate, loadDate]);
 
   return (
-    <div className="container">
+    <div className="container" style={{ padding: 12 }}>
+      <h3>Scoreboard</h3>
+
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
+          display: "grid",
+          gridTemplateColumns: "1fr 360px",
+          gap: 16,
+          alignItems: "start",
         }}
       >
-        <h3>Scoreboard</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <label style={{ fontSize: 13, color: "#444" }}>Date:</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => {
-              setDate(e.target.value);
-              loadDate(e.target.value);
-            }}
-          />
-          <button
-            className="btn"
-            onClick={() => {
-              loadAll();
-              loadDate(date);
+        {/* Overall */}
+        <div className="card" style={{ padding: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8,
             }}
           >
-            Refresh
-          </button>
-        </div>
-      </div>
+            <div style={{ fontWeight: 700 }}>Overall Totals</div>
+            <div>
+              <button
+                className="btn"
+                onClick={loadOverall}
+                disabled={loadingOverall}
+              >
+                {loadingOverall ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+          </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div className="card">
-          <h4>All-time Totals</h4>
-          {loadingAll && <div style={{ color: "#666" }}>Loading...</div>}
-          <div style={{ marginTop: 8 }}>
-            {rowsAll.length === 0 && !loadingAll && (
-              <div style={{ color: "#666" }}>No scores yet</div>
-            )}
-            {rowsAll.map((r) => (
+          {loadingOverall && <div style={{ color: "#666" }}>Loading…</div>}
+          {!loadingOverall && overallRows.length === 0 && (
+            <div style={{ color: "#666" }}>No scores yet</div>
+          )}
+
+          <div>
+            {overallRows.map((r) => (
               <div
-                key={r.player_id}
-                className="score-row"
+                key={r.id}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  padding: "8px 4px",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #f3f3f3",
                 }}
               >
                 <div>{r.name}</div>
@@ -164,30 +124,83 @@ export default function ScoreboardPage() {
           </div>
         </div>
 
-        <div className="card">
-          <h4>Totals for {date}</h4>
-          {loadingDate && <div style={{ color: "#666" }}>Loading...</div>}
-          <div style={{ marginTop: 8 }}>
-            {rowsDate.length === 0 && !loadingDate && (
-              <div style={{ color: "#666" }}>No scores for this date</div>
-            )}
-            {rowsDate.map((r) => (
-              <div
-                key={r.player_id}
-                className="score-row"
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "8px 4px",
+        {/* Date-specific */}
+        <div className="card" style={{ padding: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ fontWeight: 700 }}>Totals for date</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+              <button
+                className="btn"
+                onClick={() => loadDate(selectedDate)}
+                disabled={loadingDate || !selectedDate}
+              >
+                {loadingDate ? "Loading..." : "Load"}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setSelectedDate("");
+                  setDateRows([]);
                 }}
               >
-                <div>{r.name}</div>
-                <div style={{ fontWeight: 700 }}>{r.points_on_date}</div>
-              </div>
-            ))}
+                Clear
+              </button>
+            </div>
           </div>
+
+          {selectedDate === "" && (
+            <div style={{ color: "#666" }}>
+              Pick a date to see session totals
+            </div>
+          )}
+          {selectedDate && loadingDate && (
+            <div style={{ color: "#666" }}>Loading date totals…</div>
+          )}
+
+          {selectedDate && !loadingDate && dateRows.length === 0 && (
+            <div style={{ color: "#666" }}>
+              No points recorded for this date
+            </div>
+          )}
+
+          {selectedDate && !loadingDate && dateRows.length > 0 && (
+            <div>
+              {dateRows.map((r) => (
+                <div
+                  key={r.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    padding: "8px 0",
+                    borderBottom: "1px solid #f3f3f3",
+                  }}
+                >
+                  <div>{r.name}</div>
+                  <div style={{ fontWeight: 700 }}>{r.total_points}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {error && (
+        <div style={{ color: "red", marginTop: 12 }}>
+          Error: {error.message || JSON.stringify(error)}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,213 +1,226 @@
 // src/pages/PairingStats.jsx
-import React, { useEffect, useState, useMemo } from "react";
-import { fetchPlayers, fetchPairingStats } from "../api/supabase-actions";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { fetchPairingStatsRecorded } from "../api/supabase-actions";
 
 /**
  * PairingStats page
- * - shows team-pair stats: total matches together, wins together, losses together, win%
+ * - shows pairs that have recorded results (winner IS NOT NULL)
+ * - optional date filter (single date). Leave empty to show all recorded pairs.
  */
 export default function PairingStats() {
-  const [players, setPlayers] = useState([]);
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(""); // empty => no date filter
   const [pairs, setPairs] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState({ key: "total_matches", dir: "desc" }); // default sort
+  const [error, setError] = useState(null);
   const [filter, setFilter] = useState("");
+  const [sortBy, setSortBy] = useState({ key: "matches", dir: "desc" });
 
-  useEffect(() => {
-    (async () => {
-      const { data: pData, error: pErr } = await fetchPlayers();
-      if (pErr) {
-        console.error("fetchPlayers error", pErr);
-      } else {
-        setPlayers(pData || []);
+  const load = useCallback(
+    async (d = date) => {
+      setLoading(true);
+      setError(null);
+      try {
+        // RPC takes (p_start, p_end) - pass same date for single-day filter, or nulls
+        const start = d ? d : null;
+        const end = d ? d : null;
+        const { data, error } = await fetchPairingStatsRecorded(start, end);
+        if (error) throw error;
+        setPairs(data || []);
+      } catch (err) {
+        console.error("fetchPairingStatsRecorded error", err);
+        setError(err);
+        setPairs([]);
+      } finally {
+        setLoading(false);
       }
-    })();
-  }, []);
-
-  useEffect(() => {
-    loadPairs();
-  }, []);
-
-  async function loadPairs() {
-    setLoading(true);
-    try {
-      const { data, error } = await fetchPairingStats();
-      if (error) throw error;
-      setPairs(data || []);
-    } catch (err) {
-      console.error("fetchPairingStats error", err);
-      setPairs([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // players map for quick lookup
-  const playersMap = useMemo(
-    () => Object.fromEntries((players || []).map((p) => [p.id, p.name])),
-    [players]
+    },
+    [date]
   );
 
-  // normalize pairs with name lookup and computed win rate
-  const normalized = useMemo(() => {
-    return (pairs || [])
-      .map((r) => {
-        const total = Number(r.total_matches || 0);
-        const wins = Number(r.wins || 0);
-        const losses = Number(r.losses || 0);
-        const winPct = total > 0 ? Math.round((wins / total) * 100) : 0;
-        return {
-          player_a: r.player_a,
-          player_b: r.player_b,
-          name_a: playersMap[r.player_a] || r.player_a,
-          name_b: playersMap[r.player_b] || r.player_b,
-          pair_count: Number(r.pair_count || 0),
-          total_matches: total,
-          wins,
-          losses,
-          winPct,
-        };
-      })
-      .filter((row) => {
-        // simple filter by name
-        if (!filter) return true;
-        const f = filter.toLowerCase();
-        return (
-          row.name_a.toLowerCase().includes(f) ||
-          row.name_b.toLowerCase().includes(f)
-        );
-      });
-  }, [pairs, playersMap, filter]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  // sort
+  const normalized = useMemo(() => {
+    // RPC returns name_a, name_b, player_a, player_b, matches, wins, losses
+    return (pairs || []).map((r) => ({
+      player_a: r.player_a,
+      player_b: r.player_b,
+      name_a: r.name_a || r.player_a,
+      name_b: r.name_b || r.player_b,
+      matches: Number(r.matches || 0),
+      wins: Number(r.wins || 0),
+      losses: Number(r.losses || 0),
+      winPct: r.matches
+        ? Math.round((Number(r.wins || 0) / Number(r.matches)) * 100)
+        : 0,
+    }));
+  }, [pairs]);
+
+  const filtered = useMemo(() => {
+    const f = filter.trim().toLowerCase();
+    if (!f) return normalized;
+    return normalized.filter(
+      (r) =>
+        r.name_a.toLowerCase().includes(f) || r.name_b.toLowerCase().includes(f)
+    );
+  }, [normalized, filter]);
+
   const sorted = useMemo(() => {
-    const s = normalized.slice();
-    s.sort((x, y) => {
+    const arr = filtered.slice();
+    arr.sort((x, y) => {
       const a = x[sortBy.key];
       const b = y[sortBy.key];
       if (a < b) return sortBy.dir === "asc" ? -1 : 1;
       if (a > b) return sortBy.dir === "asc" ? 1 : -1;
       return 0;
     });
-    return s;
-  }, [normalized, sortBy]);
+    return arr;
+  }, [filtered, sortBy]);
 
   function toggleSort(key) {
-    if (sortBy.key === key) {
-      setSortBy({ key, dir: sortBy.dir === "asc" ? "desc" : "asc" });
-    } else {
-      setSortBy({ key, dir: "desc" });
-    }
-  }
-
-  // color intensity helper (based on total matches)
-  function intensityStyle(total) {
-    const max = Math.max(1, ...sorted.map((s) => s.total_matches)); // avoid divide by zero
-    const ratio = Math.min(1, total / max);
-    const alpha = 0.08 + ratio * 0.6;
-    return {
-      background: total > 0 ? `rgba(11,113,208,${alpha})` : "transparent",
-    };
+    setSortBy((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "desc" }
+    );
   }
 
   return (
-    <div className="container">
+    <div className="container" style={{ padding: 12 }}>
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 12,
+          gap: 12,
         }}
       >
-        <h3>Pairing & Team Stats</h3>
+        <h3 style={{ margin: 0 }}>Pairing Stats (recorded results)</h3>
+
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input
-            placeholder="filter by player name"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            aria-label="Filter by date"
+            title="Show pairs for this match date (optional)"
           />
-          <button className="btn" onClick={loadPairs}>
-            Refresh
+          <button className="btn" onClick={() => load(date)} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              setDate("");
+              load("");
+            }}
+          >
+            All dates
           </button>
         </div>
       </div>
 
-      <div className="card">
+      <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
+        <input
+          placeholder="Filter by player name"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ flex: 1, padding: 8 }}
+        />
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr 1fr",
-            gap: 8,
-            padding: 8,
-            fontWeight: 700,
-            alignItems: "center",
+            minWidth: 180,
+            textAlign: "right",
+            color: "#666",
+            fontSize: 13,
           }}
         >
-          <div
-            onClick={() => toggleSort("name_a")}
-            style={{ cursor: "pointer" }}
-          >
-            Player A
-          </div>
-          <div
-            onClick={() => toggleSort("name_b")}
-            style={{ cursor: "pointer" }}
-          >
-            Player B
-          </div>
-          <div
-            onClick={() => toggleSort("total_matches")}
-            style={{ cursor: "pointer" }}
-          >
-            Matches
-          </div>
-          <div onClick={() => toggleSort("wins")} style={{ cursor: "pointer" }}>
-            Wins
-          </div>
-          <div
-            onClick={() => toggleSort("losses")}
-            style={{ cursor: "pointer" }}
-          >
-            Losses
-          </div>
-          <div
-            onClick={() => toggleSort("winPct")}
-            style={{ cursor: "pointer" }}
-          >
-            Win%
-          </div>
+          <div>Pairs: {normalized.length}</div>
+          <div style={{ marginTop: 4 }}>Showing: {sorted.length}</div>
         </div>
+      </div>
 
-        <div>
-          {loading && (
-            <div style={{ color: "#666", padding: 12 }}>Loading...</div>
-          )}
-          {!loading && sorted.length === 0 && (
-            <div style={{ color: "#666", padding: 12 }}>No pairs yet</div>
-          )}
-          {!loading &&
-            sorted.map((row) => (
-              <div
-                key={`${row.player_a}|${row.player_b}`}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr 1fr",
-                  gap: 8,
-                  padding: "8px",
-                  alignItems: "center",
-                  ...intensityStyle(row.total_matches),
-                }}
-              >
-                <div>{row.name_a}</div>
-                <div>{row.name_b}</div>
-                <div style={{ textAlign: "center" }}>{row.total_matches}</div>
-                <div style={{ textAlign: "center" }}>{row.wins}</div>
-                <div style={{ textAlign: "center" }}>{row.losses}</div>
-                <div style={{ textAlign: "center" }}>{row.winPct}%</div>
-              </div>
-            ))}
-        </div>
+      <div className="card" style={{ marginTop: 12, padding: 8 }}>
+        {loading && <div style={{ color: "#666", padding: 8 }}>Loading...</div>}
+        {error && (
+          <div style={{ color: "red", padding: 8 }}>
+            Error: {error.message || JSON.stringify(error)}
+          </div>
+        )}
+        {!loading && sorted.length === 0 && !error && (
+          <div style={{ color: "#666", padding: 12 }}>
+            No recorded pairs found for selected date/filter.
+          </div>
+        )}
+
+        {!loading && sorted.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr
+                  style={{ textAlign: "left", borderBottom: "1px solid #eee" }}
+                >
+                  <th style={{ padding: 8 }}>Player A</th>
+                  <th style={{ padding: 8 }}>Player B</th>
+                  <th
+                    style={{ padding: 8, cursor: "pointer" }}
+                    onClick={() => toggleSort("matches")}
+                  >
+                    Matches ▾
+                  </th>
+                  <th
+                    style={{ padding: 8, cursor: "pointer" }}
+                    onClick={() => toggleSort("wins")}
+                  >
+                    Wins ▾
+                  </th>
+                  <th
+                    style={{ padding: 8, cursor: "pointer" }}
+                    onClick={() => toggleSort("losses")}
+                  >
+                    Losses ▾
+                  </th>
+                  <th
+                    style={{ padding: 8, cursor: "pointer" }}
+                    onClick={() => toggleSort("winPct")}
+                  >
+                    Win% ▾
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r) => (
+                  <tr
+                    key={`${r.player_a}|${r.player_b}`}
+                    style={{ borderBottom: "1px solid #fafafa" }}
+                  >
+                    <td style={{ padding: 8, minWidth: 160 }}>{r.name_a}</td>
+                    <td style={{ padding: 8, minWidth: 160 }}>{r.name_b}</td>
+                    <td style={{ padding: 8, textAlign: "center" }}>
+                      {r.matches}
+                    </td>
+                    <td style={{ padding: 8, textAlign: "center" }}>
+                      {r.wins}
+                    </td>
+                    <td style={{ padding: 8, textAlign: "center" }}>
+                      {r.losses}
+                    </td>
+                    <td style={{ padding: 8, textAlign: "center" }}>
+                      {r.winPct}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 12, color: "#666", fontSize: 13 }}>
+        Note: this view shows only pairs from matches with recorded winners. Use
+        the date filter to focus on a session.
       </div>
     </div>
   );

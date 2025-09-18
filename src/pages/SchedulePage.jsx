@@ -194,7 +194,7 @@ export default function SchedulePage() {
     <div className="container">
       <header className="header">
         <div className="brand">
-          <div className="logo">CS</div>
+          <div className="logo">IB</div>
           <div className="title">Schedule — {date}</div>
         </div>
 

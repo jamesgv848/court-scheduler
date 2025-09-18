@@ -79,11 +79,30 @@ export async function fetchPlayers() {
   return { data, error };
 }
 
-export async function fetchPlayerTotals() {
-  const { data, error } = await supabase
-    .from("player_totals")
-    .select("*")
-    .order("total_points", { ascending: false });
+// fetch overall totals (existing view player_totals assumed)
+export async function fetchPlayerTotals(overall = true) {
+  if (overall) {
+    const { data, error } = await supabase
+      .from("player_totals")
+      .select("*")
+      .order("total_points", { ascending: false });
+    return { data, error };
+  } else {
+    // fetch all players ordered by name if overall==false without date: still return zeroes
+    const { data, error } = await supabase
+      .from("players")
+      .select("id, name")
+      .order("name", { ascending: true });
+    return { data, error };
+  }
+}
+
+// fetch totals for a single date using RPC
+export async function fetchPlayerTotalsByDate(dateStr) {
+  // dateStr should be 'YYYY-MM-DD' or null
+  const { data, error } = await supabase.rpc("player_totals_by_date", {
+    p_date: dateStr,
+  });
   return { data, error };
 }
 
@@ -148,5 +167,18 @@ export async function fetchPairingStats() {
 
 export async function fetchPairingStatsSimple() {
   const { data, error } = await supabase.rpc("pairing_stats_simple");
+  return { data, error };
+}
+
+// fetch pairs that have recorded results; optional startDate/endDate are 'YYYY-MM-DD' strings or null
+export async function fetchPairingStatsRecorded(
+  startDate = null,
+  endDate = null
+) {
+  // note: parameter names must match RPC args (p_start, p_end)
+  const { data, error } = await supabase.rpc("pairing_stats_recorded", {
+    p_start: startDate,
+    p_end: endDate,
+  });
   return { data, error };
 }
