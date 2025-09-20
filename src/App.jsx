@@ -131,10 +131,16 @@ export default function App() {
             </>
           ) : (
             <>
+              {/* Single unified CTA — opens the email modal for both sign-up & sign-in */}
               <button className="signup-btn" onClick={() => openEmailModal("")}>
-                Sign Up
+                Send Login Link
               </button>
-              <NavLink to="/auth" className="nav-button">
+              {/* Optional: keep a small "Sign In" link for direct navigation to /auth */}
+              <NavLink
+                to="/auth"
+                className="nav-button"
+                style={{ display: "none" }}
+              >
                 Sign In
               </NavLink>
             </>

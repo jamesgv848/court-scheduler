@@ -12,12 +12,18 @@ import {
 } from "../api/supabase-actions";
 import MatchCard from "../components/MatchCard";
 
+const STORAGE_KEY = "cs_selected_date";
+
 export default function SchedulePage() {
   const [players, setPlayers] = useState([]);
   const [available, setAvailable] = useState([]); // selected available player ids
   const [courts, setCourts] = useState(1);
   const [matchesPerCourt, setMatchesPerCourt] = useState(5);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => {
+    // restore from localStorage if present, otherwise today
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored || new Date().toISOString().slice(0, 10);
+  });
   const [preview, setPreview] = useState([]);
   const [savedMatches, setSavedMatches] = useState([]);
   const [pairingMap, setPairingMap] = useState(new Map());
@@ -60,7 +66,6 @@ export default function SchedulePage() {
       setLoadingMatches(true);
       const { data, error } = await fetchMatchesForDate(date);
       if (error) throw error;
-      // ensure player_ids are present as arrays
       setSavedMatches(data || []);
     } catch (err) {
       console.error("loadSavedMatches error", err);
@@ -76,10 +81,14 @@ export default function SchedulePage() {
     loadSavedMatches();
   }, [loadPlayers, loadHistory, loadSavedMatches]);
 
+  // persist date to localStorage whenever it changes
+  useEffect(() => {
+    if (date) window.localStorage.setItem(STORAGE_KEY, date);
+  }, [date]);
+
   // Realtime subscription for matches changes on the selected date
   useEffect(() => {
     if (!date) return;
-    // create a channel that listens to changes on matches for this date
     const channel = supabase
       .channel(`public:matches:date=${date}`)
       .on(
@@ -90,22 +99,17 @@ export default function SchedulePage() {
           table: "matches",
           filter: `match_date=eq.${date}`,
         },
-        (payload) => {
-          // Payload arrives on insert/update/delete - reload saved matches
-          // You can inspect payload.operation or payload.type if you want
-          // console.debug('Realtime payload', payload);
+        () => {
           loadSavedMatches();
         }
       )
       .subscribe();
 
     return () => {
-      // cleanup subscription on unmount or when date changes
       try {
         supabase.removeChannel(channel);
       } catch (e) {
         // ignore removal errors
-        // console.warn('removeChannel failed', e);
       }
     };
   }, [date, loadSavedMatches]);
@@ -131,6 +135,11 @@ export default function SchedulePage() {
       opponentHistory: opponentMap,
     });
     setPreview(schedule);
+    // after generation, scroll preview into view for faster workflow
+    setTimeout(() => {
+      const el = document.querySelector(".schedule-list");
+      el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }, 80);
   }
 
   // save preview to DB (do NOT include frontend ids like "m_1")
@@ -143,11 +152,8 @@ export default function SchedulePage() {
     try {
       const { data, error } = await saveScheduleToDb(preview, date);
       if (error) throw error;
-      // data contains the newly inserted rows (with DB-generated UUID ids)
-      // refresh saved matches (and clear preview)
       await loadSavedMatches();
       setPreview([]);
-      // reload history so future generates account for new pairings (optional)
       await loadHistory();
       alert("Schedule saved.");
     } catch (err) {
@@ -169,15 +175,13 @@ export default function SchedulePage() {
       )
     )
       return;
-
     setClearing(true);
     try {
       const { data, error } = await deleteScheduleForDate(date);
       if (error) throw error;
-      // refresh local state / UI
       await loadSavedMatches();
       setPreview([]); // remove preview (since schedule removed)
-      await loadHistory(); // refresh pairing/opponent history
+      await loadHistory();
       window.dispatchEvent(new Event("scores-changed"));
       alert(
         `Cleared schedule for ${date}. Removed ${data?.length ?? 0} matches.`
@@ -198,58 +202,86 @@ export default function SchedulePage() {
           <div className="title">Schedule — {date}</div>
         </div>
 
-        <div className="controls">
+        {/* Keep a compact date display in header but inputs moved to the players card */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ fontSize: 13, color: "#666" }}>Date:</div>
           <input
+            className="date-input"
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
+            aria-label="Select match date"
           />
-          <input
-            type="number"
-            min={1}
-            value={courts}
-            onChange={(e) => setCourts(e.target.value)}
-            style={{ width: 80 }}
-          />
-          <input
-            type="number"
-            min={1}
-            value={matchesPerCourt}
-            onChange={(e) => setMatchesPerCourt(e.target.value)}
-            style={{ width: 80 }}
-          />
-          <button className="btn" onClick={onGeneratePreview}>
-            Generate
-          </button>
-          <button
-            className="btn secondary"
-            onClick={onSaveSchedule}
-            disabled={loadingSave}
-          >
-            {loadingSave ? "Saving..." : "Save Schedule"}
-          </button>
-
-          <button
-            className="btn danger"
-            onClick={onClearSchedule}
-            disabled={clearing}
-            style={{ marginLeft: 8 }}
-          >
-            {clearing ? "Clearing..." : "Clear Schedule"}
-          </button>
         </div>
       </header>
 
       <div className="grid">
         <div>
+          {/* Players card (controls moved here) */}
           <div className="card">
-            <h3>Players (select available)</h3>
+            <h3>Select Details</h3>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label className="form-label">Courts</label>
+                <input
+                  className="number-input"
+                  type="number"
+                  min={1}
+                  value={courts}
+                  onChange={(e) =>
+                    setCourts(Math.max(1, Number(e.target.value || 1)))
+                  }
+                />
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label className="form-label">Matches/Court</label>
+                <input
+                  className="number-input"
+                  type="number"
+                  min={1}
+                  value={matchesPerCourt}
+                  onChange={(e) =>
+                    setMatchesPerCourt(Math.max(1, Number(e.target.value || 1)))
+                  }
+                />
+              </div>
+
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <button className="btn generate" onClick={onGeneratePreview}>
+                  Generate
+                </button>
+                <button
+                  className="btn secondary"
+                  onClick={onSaveSchedule}
+                  disabled={loadingSave}
+                >
+                  {loadingSave ? "Saving..." : "Save"}
+                </button>
+                <button
+                  className="btn danger"
+                  onClick={onClearSchedule}
+                  disabled={clearing}
+                >
+                  {clearing ? "Clearing..." : "Clear"}
+                </button>
+              </div>
+            </div>
+
             <div
               style={{
                 display: "flex",
                 flexWrap: "wrap",
                 gap: 8,
-                marginTop: 10,
+                marginTop: 6,
               }}
             >
               {players.map((p) => (
@@ -268,6 +300,7 @@ export default function SchedulePage() {
             </div>
           </div>
 
+          {/* Preview */}
           <div className="card" style={{ marginTop: 12 }}>
             <h3>Preview ({preview.length} matches)</h3>
             <div className="schedule-list">
@@ -304,6 +337,7 @@ export default function SchedulePage() {
             </div>
           </div>
 
+          {/* Saved Matches */}
           <div className="card" style={{ marginTop: 12 }}>
             <h3>Saved Matches for {date}</h3>
             <div className="schedule-list">
@@ -326,9 +360,8 @@ export default function SchedulePage() {
         </div>
 
         <aside>
-          {/* Pairing heatmap temporarily hidden */}
-
-          <div className="card" style={{ marginTop: 12 }}>
+          {/* Help */}
+          <div className="card">
             <h4>Help</h4>
             <p style={{ color: "#555", fontSize: 13 }}>
               Select available players for the date, set courts and matches per
@@ -338,75 +371,6 @@ export default function SchedulePage() {
           </div>
         </aside>
       </div>
-    </div>
-  );
-}
-
-/** Inline PairingHeatmap component (keeps file self-contained) */
-function PairingHeatmap({
-  players = [],
-  pairingMap = new Map(),
-  opponentMap = new Map(),
-}) {
-  if (!players || players.length === 0) return <div>No players</div>;
-
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ borderCollapse: "collapse", width: "100%" }}>
-        <thead>
-          <tr>
-            <th></th>
-            {players.map((p) => (
-              <th key={p.id} style={{ textAlign: "center", padding: 6 }}>
-                {p.name.split(" ")[0]}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {players.map((row) => (
-            <tr key={row.id}>
-              <td style={{ padding: 6, fontWeight: 700 }}>
-                {row.name.split(" ")[0]}
-              </td>
-              {players.map((col) => {
-                if (row.id === col.id)
-                  return (
-                    <td
-                      key={col.id}
-                      style={{ padding: 6, textAlign: "center" }}
-                    >
-                      —
-                    </td>
-                  );
-                const key =
-                  row.id < col.id
-                    ? `${row.id}|${col.id}`
-                    : `${col.id}|${row.id}`;
-                const count = pairingMap.get(key) || 0;
-                const intensity = Math.min(1, count / 5);
-                const bg =
-                  count === 0
-                    ? "transparent"
-                    : `rgba(11,113,208,${0.12 + intensity * 0.6})`;
-                return (
-                  <td
-                    key={col.id}
-                    style={{
-                      padding: 6,
-                      textAlign: "center",
-                      background: bg,
-                      fontSize: 13,
-                    }}
-                  >
-                    {count}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

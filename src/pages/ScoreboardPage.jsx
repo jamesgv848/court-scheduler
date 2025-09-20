@@ -134,7 +134,7 @@ export default function ScoreboardPage() {
               marginBottom: 8,
             }}
           >
-            <div style={{ fontWeight: 700 }}>Totals for date</div>
+            <div style={{ fontWeight: 700 }}>Game Date</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="date"
