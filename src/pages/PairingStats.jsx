@@ -3,9 +3,9 @@ import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { fetchPairingStatsRecorded } from "../api/supabase-actions";
 
 /**
- * PairingStats page
- * - shows pairs that have recorded results (winner IS NOT NULL)
- * - optional date filter (single date). Leave empty to show all recorded pairs.
+ * PairingStats page (responsive)
+ * Desktop: table
+ * Mobile: stacked cards
  */
 export default function PairingStats() {
   const today = new Date().toISOString().slice(0, 10);
@@ -21,7 +21,6 @@ export default function PairingStats() {
       setLoading(true);
       setError(null);
       try {
-        // RPC takes (p_start, p_end) - pass same date for single-day filter, or nulls
         const start = d ? d : null;
         const end = d ? d : null;
         const { data, error } = await fetchPairingStatsRecorded(start, end);
@@ -43,7 +42,6 @@ export default function PairingStats() {
   }, [load]);
 
   const normalized = useMemo(() => {
-    // RPC returns name_a, name_b, player_a, player_b, matches, wins, losses
     return (pairs || []).map((r) => ({
       player_a: r.player_a,
       player_b: r.player_b,
@@ -98,7 +96,6 @@ export default function PairingStats() {
         }}
       >
         <h3 style={{ margin: 0 }}>Pairing Stats (recorded results)</h3>
-
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input
             type="date"
@@ -122,7 +119,14 @@ export default function PairingStats() {
         </div>
       </div>
 
-      <div style={{ marginTop: 12, display: "flex", gap: 12 }}>
+      <div
+        style={{
+          marginTop: 12,
+          display: "flex",
+          gap: 12,
+          alignItems: "center",
+        }}
+      >
         <input
           placeholder="Filter by player name"
           value={filter}
@@ -155,66 +159,152 @@ export default function PairingStats() {
           </div>
         )}
 
+        {/* ---------- Desktop table (visible on wider screens) ---------- */}
         {!loading && sorted.length > 0 && (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr
-                  style={{ textAlign: "left", borderBottom: "1px solid #eee" }}
-                >
-                  <th style={{ padding: 8 }}>Player A</th>
-                  <th style={{ padding: 8 }}>Player B</th>
-                  <th
-                    style={{ padding: 8, cursor: "pointer" }}
-                    onClick={() => toggleSort("matches")}
-                  >
-                    Matches ▾
-                  </th>
-                  <th
-                    style={{ padding: 8, cursor: "pointer" }}
-                    onClick={() => toggleSort("wins")}
-                  >
-                    Wins ▾
-                  </th>
-                  <th
-                    style={{ padding: 8, cursor: "pointer" }}
-                    onClick={() => toggleSort("losses")}
-                  >
-                    Losses ▾
-                  </th>
-                  <th
-                    style={{ padding: 8, cursor: "pointer" }}
-                    onClick={() => toggleSort("winPct")}
-                  >
-                    Win% ▾
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((r) => (
+          <>
+            <div className="pairing-table-wrap" style={{ overflowX: "auto" }}>
+              <table
+                className="pairing-table"
+                style={{ width: "100%", borderCollapse: "collapse" }}
+              >
+                <thead>
                   <tr
-                    key={`${r.player_a}|${r.player_b}`}
-                    style={{ borderBottom: "1px solid #fafafa" }}
+                    style={{
+                      textAlign: "left",
+                      borderBottom: "1px solid #eee",
+                    }}
                   >
-                    <td style={{ padding: 8, minWidth: 160 }}>{r.name_a}</td>
-                    <td style={{ padding: 8, minWidth: 160 }}>{r.name_b}</td>
-                    <td style={{ padding: 8, textAlign: "center" }}>
-                      {r.matches}
-                    </td>
-                    <td style={{ padding: 8, textAlign: "center" }}>
-                      {r.wins}
-                    </td>
-                    <td style={{ padding: 8, textAlign: "center" }}>
-                      {r.losses}
-                    </td>
-                    <td style={{ padding: 8, textAlign: "center" }}>
-                      {r.winPct}%
-                    </td>
+                    <th style={{ padding: 8 }}>Player A</th>
+                    <th style={{ padding: 8 }}>Player B</th>
+                    <th
+                      style={{ padding: 8, cursor: "pointer" }}
+                      onClick={() => toggleSort("matches")}
+                    >
+                      Matches ▾
+                    </th>
+                    <th
+                      style={{ padding: 8, cursor: "pointer" }}
+                      onClick={() => toggleSort("wins")}
+                    >
+                      Wins ▾
+                    </th>
+                    <th
+                      style={{ padding: 8, cursor: "pointer" }}
+                      onClick={() => toggleSort("losses")}
+                    >
+                      Losses ▾
+                    </th>
+                    <th
+                      style={{ padding: 8, cursor: "pointer" }}
+                      onClick={() => toggleSort("winPct")}
+                    >
+                      Win% ▾
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {sorted.map((r) => (
+                    <tr
+                      key={`${r.player_a}|${r.player_b}`}
+                      style={{ borderBottom: "1px solid #fafafa" }}
+                    >
+                      <td style={{ padding: 8 }}>{r.name_a}</td>
+                      <td style={{ padding: 8 }}>{r.name_b}</td>
+                      <td style={{ padding: 8, textAlign: "center" }}>
+                        {r.matches}
+                      </td>
+                      <td style={{ padding: 8, textAlign: "center" }}>
+                        {r.wins}
+                      </td>
+                      <td style={{ padding: 8, textAlign: "center" }}>
+                        {r.losses}
+                      </td>
+                      <td style={{ padding: 8, textAlign: "center" }}>
+                        {r.winPct}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ---------- Mobile stacked card list (visible only on small screens via CSS) ---------- */}
+            <div className="pairing-cards">
+              {sorted.map((r) => (
+                <div
+                  key={`${r.player_a}|${r.player_b}`}
+                  className="pairing-card"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    padding: 10,
+                    borderBottom: "1px solid rgba(0,0,0,0.04)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      {r.name_a}{" "}
+                      <span style={{ color: "#6b7280", fontWeight: 500 }}>
+                        {" "}
+                        &amp;{" "}
+                      </span>{" "}
+                      {r.name_b}
+                    </div>
+                    <div style={{ color: "#666", fontSize: 13 }}>
+                      {r.matches} matches
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: "#f3f4f6",
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        fontSize: 13,
+                      }}
+                    >
+                      Wins: {r.wins}
+                    </div>
+                    <div
+                      style={{
+                        background: "#f3f4f6",
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        fontSize: 13,
+                      }}
+                    >
+                      Losses: {r.losses}
+                    </div>
+                    <div
+                      style={{
+                        background: "#eef2ff",
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        fontSize: 13,
+                        color: "var(--primary)",
+                      }}
+                    >
+                      Win%: {r.winPct}%
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

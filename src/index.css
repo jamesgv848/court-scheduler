@@ -485,3 +485,33 @@ body {
     min-width: 100px !important;
   }
 }
+
+/* PairingStats responsive helpers */
+
+/* hide mobile stacked list on desktop, show on mobile */
+.pairing-cards {
+  display: none;
+}
+
+/* for desktop keep default table; small screens switch to card view */
+@media (max-width: 720px) {
+  .pairing-table-wrap {
+    display: none; /* hide wide table on small screens */
+  }
+  .pairing-cards {
+    display: block; /* show stacked cards */
+  }
+  /* make sure cards use full width and comfortable padding */
+  .pairing-card {
+    width: 100%;
+    background: transparent;
+    border-radius: 8px;
+    padding: 10px 0;
+  }
+  /* tighten table cell spacing if table ever appears */
+  .pairing-table td,
+  .pairing-table th {
+    padding: 8px 6px;
+    font-size: 14px;
+  }
+}
