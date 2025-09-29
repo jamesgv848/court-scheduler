@@ -135,7 +135,7 @@ export default function App() {
           ) : (
             <>
               {/* Single unified CTA — opens the email modal for both sign-up & sign-in */}
-              <button className="signup-btn" onClick={() => openEmailModal("")}>
+              <button className="auth-btn" onClick={() => openEmailModal("")}>
                 Send Login Link
               </button>
               {/* Optional: keep a small "Sign In" link for direct navigation to /auth */}
@@ -258,7 +258,7 @@ function MobileNav({ open, onClose, user, onOpenEmail, onSignOut }) {
       <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
         {user ? (
           <button
-            className="signup-btn secondary"
+            className="auth-btn secondary"
             onClick={() => {
               onSignOut();
               onClose();
@@ -269,7 +269,7 @@ function MobileNav({ open, onClose, user, onOpenEmail, onSignOut }) {
         ) : (
           <>
             <button
-              className="signup-btn"
+              className="auth-btn"
               onClick={() => {
                 onOpenEmail();
                 onClose();
@@ -357,6 +357,7 @@ function EmailModal({ open, initialEmail = "", onClose }) {
             <input
               autoFocus
               type="email"
+              className="auth-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
@@ -368,7 +369,7 @@ function EmailModal({ open, initialEmail = "", onClose }) {
               }}
             />
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button type="submit" className="signup-btn" disabled={busy}>
+              <button type="submit" className="auth-btn" disabled={busy}>
                 {busy ? "Sending…" : "Send link"}
               </button>
               <button
@@ -394,7 +395,7 @@ function EmailModal({ open, initialEmail = "", onClose }) {
               Check your inbox (and spam) and click the link to sign in.
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="signup-btn" onClick={onClose}>
+              <button className="auth-btn" onClick={onClose}>
                 Done
               </button>
               <button
