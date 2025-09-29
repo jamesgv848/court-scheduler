@@ -1,20 +1,22 @@
-﻿/* src/index.css - sporty theme */
+﻿/* src/index.css - Mobile-first sporty theme (replace existing) */
 
+/* --- color tokens --- */
 :root {
   --primary: #0b71d0;
   --accent: #ffb703;
   --bg: #0f1724;
   --card: #ffffff;
   --muted: #6b7280;
-  --success: #16a34a;
+  --success: #10b981;
   --danger: #ef4444;
   --glass: rgba(255, 255, 255, 0.06);
   --radius: 10px;
-  --gap: 12px;
-  --shadow: 0 6px 18px rgba(11, 17, 34, 0.18);
-  color-scheme: light;
+  --gap: 10px;
+  --shadow: 0 6px 18px rgba(11, 17, 34, 0.12);
+  --max-content-width: 1100px;
 }
 
+/* --- global & reset --- */
 * {
   box-sizing: border-box;
 }
@@ -27,62 +29,113 @@ body,
 body {
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial;
-  background: linear-gradient(180deg, #f8fafc, #f1f5f9);
-  color: #0f1724;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  padding: 20px;
+  background: linear-gradient(180deg, #f8fafc, #f1f5f9);
+  color: #0f1724;
+  padding: 14px;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1.25;
+  font-size: 14px;
 }
 
-/* Header */
+/* --- container --- (mobile centered, fluid) */
+.container {
+  width: 100%;
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  padding: 0 8px;
+}
+
+/* --- header --- */
+.app-header,
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
+  gap: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.02);
+  margin-bottom: 12px;
 }
-.brand {
+
+/* brand */
+.brand,
+.header-left {
   display: flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
 }
 .logo {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   border-radius: 10px;
   background: linear-gradient(135deg, var(--primary), #085fa8);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 16px;
   box-shadow: var(--shadow);
-  font-size: 18px;
 }
 .title {
-  font-size: 18px;
   font-weight: 700;
+  font-size: 16px;
   color: var(--bg);
 }
 
-/* Controls */
-.controls {
+/* nav / header-right */
+.nav-buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  align-items: center;
+}
+.nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 600;
+  color: var(--primary);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.nav-button.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(11, 113, 208, 0.12);
+}
+.header-right {
+  display: flex;
+  gap: 8px;
   align-items: center;
 }
 
-/* Buttons */
+/* --- small UI primitives --- */
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(15, 23, 36, 0.04);
+  overflow: visible;
+}
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid transparent;
+  border-radius: 10px;
+  border: 0;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 13px;
   background: #f3f4f6;
   color: #111827;
   transition: transform 0.08s ease, box-shadow 0.12s ease;
@@ -91,427 +144,432 @@ body {
   opacity: 0.6;
   cursor: not-allowed;
 }
+.btn.small {
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+  font-weight: 600;
+}
 .btn.secondary {
   background: #fff;
   color: var(--primary);
-  border: 1px solid rgba(11, 113, 208, 0.12);
+  border: 1px solid rgba(11, 113, 208, 0.08);
 }
-.btn.ghost {
-  background: transparent;
-  color: var(--primary);
-  border: 1px dashed rgba(11, 113, 208, 0.08);
-}
-.btn.small {
-  padding: 6px 10px;
-  font-size: 0.9rem;
-}
-
 .btn.danger {
-  background-color: #dc2626; /* red-600 */
+  background: var(--danger);
   color: #fff;
-  border: none;
+}
+.btn.generate {
+  background: linear-gradient(90deg, #00b09b 0%, #96c93d 100%);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(6, 120, 100, 0.12);
 }
 
-.btn.danger:hover:not(:disabled) {
-  background-color: #b91c1c; /* darker red */
+/* form inputs */
+.number-input,
+.date-input,
+.text-input,
+input[type="email"] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 36, 0.06);
+  font-size: 14px;
+  background: #fff;
+  min-width: 72px;
+  outline: none;
+}
+.date-input {
+  min-width: 150px;
+}
+.number-input:focus,
+.date-input:focus,
+.text-input:focus {
+  box-shadow: 0 6px 18px rgba(11, 113, 208, 0.06);
+  border-color: rgba(11, 113, 208, 0.18);
+}
+.form-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f1724;
+  margin-right: 6px;
 }
 
-/* Layout */
-.container {
-  max-width: 1100px;
-  margin: 0 auto;
-}
+/* --- grid layout mobile-first: single column --- */
 .grid {
-  display: grid;
-  grid-template-columns: 1fr 360px;
-  gap: 18px;
-  align-items: start;
+  display: block;
+  gap: 12px;
+}
+@media (min-width: 900px) {
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    align-items: start;
+    gap: 18px;
+  }
 }
 
-/* Card */
-.card {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 14px;
-  box-shadow: var(--shadow);
-  border: 1px solid rgba(15, 23, 36, 0.04);
-}
+/* ----- match card & team blocks (mobile-first, responsive) ----- */
 
-/* Schedule list and match card */
 .schedule-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-top: 8px;
+  width: 100%;
 }
+
+/* base card row */
 .match-card {
   display: flex;
-  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
   align-items: center;
   justify-content: space-between;
   padding: 10px;
+  gap: 12px;
   border-radius: 8px;
   background: linear-gradient(180deg, #fff, #fbfbfd);
   border: 1px solid rgba(15, 23, 36, 0.04);
+  transition: box-shadow 150ms ease, border-color 150ms ease;
 }
+
+/* left and right parts */
 .match-left {
   display: flex;
   gap: 12px;
   align-items: center;
-}
-.match-index {
-  font-weight: 700;
-  color: var(--muted);
-}
-.team {
-  font-weight: 600;
-}
-.player {
-  font-weight: 500;
-  color: #111827;
-}
-.court-pill {
-  background: var(--glass);
-  padding: 6px 8px;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  color: var(--muted);
+  flex: 1 1 auto;
+  min-width: 0; /* allow shrinking */
 }
 
-/* Winner btn */
-.winner-btn {
-  background: var(--success);
-  color: white;
+.match-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+/* index badge on the left */
+.match-index {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(11, 113, 208, 0.08);
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+/* teams container - allow wrapping on small viewports */
+.teams {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* team-block used by MatchCard */
+.team-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 10px;
   border-radius: 8px;
-  border: 0;
+  border: 1px solid rgba(15, 23, 36, 0.04);
+  min-width: 120px;
+  background: #fff;
   cursor: pointer;
+  text-align: left;
+  flex: 0 1 auto; /* allow shrinking if needed */
 }
-.undo-btn {
-  background-color: #dc2626; /* red */
+
+/* small label inside team-block */
+.team-label {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid rgba(11, 113, 208, 0.08);
+  flex-shrink: 0;
+}
+
+/* names stack */
+.team-names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.team-name-main {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.1;
+  color: var(--primary);
+}
+
+.team-name-sub {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* winner visuals */
+.team-winner {
+  background: linear-gradient(90deg, var(--primary), #085fa8);
   color: #fff;
-  border: none;
+  border: 1px solid rgba(11, 113, 208, 0.14);
+  box-shadow: 0 8px 20px rgba(11, 113, 208, 0.08);
+}
+.team-winner .team-name-main {
+  color: #fff;
+}
+.team-winner .team-name-sub {
+  color: rgba(255, 255, 255, 0.92);
+}
+.team-winner .team-label {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--primary);
 }
 
-.undo-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(11, 113, 208, 0.08);
+/* court pill and trophy */
+.court-pill {
+  min-width: 84px;
+  text-align: center;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: var(--primary);
+  font-weight: 800;
+  font-size: 13px;
+  border: 1px solid rgba(11, 113, 208, 0.08);
+  flex-shrink: 0;
 }
 
-/* Scoreboard */
+.trophy {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 215, 0, 0.12);
+  color: #f59e0b;
+  font-weight: 800;
+  font-size: 13px;
+  margin-left: 6px;
+}
+
+/* completed match row */
+.match-completed {
+  border: 2px solid rgba(11, 113, 208, 0.12);
+  box-shadow: 0 10px 28px rgba(11, 113, 208, 0.06);
+  background: linear-gradient(180deg, #f7fbff, #f0f7ff);
+}
+
+/* compact size tweaks */
+.compact-match {
+  padding: 8px;
+}
+.compact-match .team-name-main {
+  font-size: 13px;
+}
+.compact-match .team-name-sub {
+  font-size: 12px;
+}
+
+/* Small screens: stack actions under teams for narrow widths */
+@media (max-width: 520px) {
+  .match-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .match-left {
+    width: 100%;
+  }
+  .match-right {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .team-block {
+    min-width: 44%;
+  } /* two blocks side-by-side */
+  .court-pill {
+    min-width: 92px;
+  }
+  .match-index {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+  }
+}
+
+/* Very small screens */
+@media (max-width: 380px) {
+  .team-block {
+    min-width: 100%;
+  }
+  .teams {
+    gap: 8px;
+  }
+  .match-right {
+    justify-content: flex-start;
+  }
+  .court-pill {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .btn {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+}
+
+/* scoreboard styles */
 .score-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 .score-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 8px;
   border-radius: 8px;
-  background: #f8f9fb;
-}
-
-/* Small utilities */
-.hstack {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.badge {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: var(--primary);
-  font-weight: 600;
-}
-
-/* Responsive */
-@media (max-width: 900px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-  .controls {
-    flex-wrap: wrap;
-
-    .brand .title {
-      display: none; /* keep header compact on small screens */
-    }
-  }
-}
-
-/* Header - make nav links look like buttons and push signup to right */
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 20px;
-  background: #ffffff;
-  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.06);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
-  position: sticky;
-  top: 0;
-  z-index: 40;
-}
-
-/* left area for logo + nav */
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-/* nav button style */
-.nav-buttons {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.nav-button {
-  background: transparent;
-  border: 1px solid transparent;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-weight: 600;
-  color: #0b71d0;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.nav-button:hover {
-  background: rgba(11, 113, 208, 0.08);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(11, 113, 208, 0.06);
-}
-
-/* active nav (optional) */
-.nav-button.active {
-  background: #0b71d0;
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(11, 113, 208, 0.12);
-}
-
-/* signup on right */
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* signup button style */
-.signup-btn {
-  background: #0b71d0;
-  color: #fff;
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: none;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(11, 113, 208, 0.12);
-}
-.signup-btn.secondary {
-  background: transparent;
-  color: #0b71d0;
-  border: 1px solid rgba(11, 113, 208, 0.15);
-}
-
-/* small responsive adjustments */
-@media (max-width: 720px) {
-  .nav-buttons {
-    display: none;
-  } /* keep header tidy on mobile */
-}
-
-/* === Inputs & labels: nicer consistent look === */
-.form-label {
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: #0f1724;
-  margin-right: 6px;
-  display: inline-block;
-}
-
-/* number inputs and date input shared styling */
-.number-input,
-.date-input,
-.text-input {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(15, 23, 36, 0.08);
   background: #fff;
-  min-width: 72px;
-  font-size: 0.95rem;
-  outline: none;
-  transition: box-shadow 0.12s ease, border-color 0.12s ease;
-  box-shadow: 0 1px 2px rgba(11, 17, 34, 0.03);
+  border: 1px solid rgba(15, 23, 36, 0.04);
+}
+.score-row .name {
+  font-weight: 700;
+  font-size: 14px;
+}
+.score-row .points {
+  font-weight: 800;
+  font-size: 14px;
 }
 
-/* date input needs slight different width */
-.date-input {
-  min-width: 160px;
+/* pairing stats table -> responsive: mobile stacked rows */
+.table-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+.paired-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.paired-table th,
+.paired-table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid #f7f7fb;
+  font-size: 13px;
 }
 
-/* focus states */
-.number-input:focus,
-.date-input:focus,
-.text-input:focus {
-  border-color: rgba(11, 113, 208, 0.3);
-  box-shadow: 0 6px 18px rgba(11, 113, 208, 0.06);
-}
-
-/* more compact players checkboxes */
-.card > label {
-  user-select: none;
-  font-weight: 500;
-  color: #111827;
-}
-
-/* tweak spacing for the controls row inside Players card */
-.card > .controls-row {
+/* stacked row card alternative for mobile */
+.pair-row-card {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 36, 0.04);
+}
+.pair-row-grid {
+  display: flex;
+  justify-content: space-between;
   gap: 8px;
   align-items: center;
 }
 
-/* Apply with className="btn generate" */
-.btn.generate {
-  background: linear-gradient(
-    90deg,
-    #00b09b 0%,
-    #96c93d 100%
-  ); /* teal -> lime */
-  color: #fff;
-  border: none;
-  box-shadow: 0 8px 24px rgba(6, 120, 100, 0.18);
-  font-weight: 700;
+/* hide default table on small screens and use cards */
+@media (max-width: 720px) {
+  .paired-table {
+    display: none;
+  }
+  .pair-row-card {
+    display: block;
+  }
 }
-.btn.generate:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(6, 120, 100, 0.22);
-}
-
-/* ===== Compact match row tweaks (paste near end of index.css) ===== */
-
-/* reduce match card height and spacing */
-.compact-match {
-  padding: 8px !important;
-  margin-bottom: 8px !important;
-  border-radius: 8px;
+/* show table on larger screens and hide cards */
+@media (min-width: 721px) {
+  .pair-row-card {
+    display: none;
+  }
+  .paired-table {
+    display: table;
+  }
 }
 
-/* smaller index badge */
-.compact-match .match-index,
-.match-card > div > div > div[style*="#"] {
-  font-size: 14px !important;
-}
-
-/* tighten team blocks */
-.match-card .team,
-.match-card .player {
-  font-size: 13px !important;
-}
-
-/* smaller pills and buttons */
-.match-card .court-pill,
-.match-card .badge,
-.btn.small,
-.btn.btn-small {
-  font-size: 12px !important;
-  padding: 6px 8px !important;
-  border-radius: 8px !important;
-}
-
-/* create a compact button variant (used by MatchCard) */
-.btn-small {
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-}
-
-/* tighten space inside match-card */
-.match-card {
-  gap: 8px;
-  padding: 8px;
-}
-
-/* prevent overly wide minWidth in team blocks on very small screens */
-.match-card [style*="min-width: 140px"] {
-  min-width: 120px !important;
-}
-
-/* smaller name sizes and line height for compact display */
-.match-card div[style*="fontSize: 15px"] {
-  font-size: 13px !important;
-  line-height: 1.05 !important;
-}
-.match-card div[style*="fontSize: 14px"] {
-  font-size: 12px !important;
-  line-height: 1.05 !important;
-}
-
-/* make sure winner pill fits in compact layout */
-.match-card > div > div > div[style*="Winner"] {
-  padding: 6px 10px !important;
-  font-size: 13px !important;
-}
-
-/* mobile-specific: slightly reduce everything on very small viewports */
+/* small tweaks for touch spacing on mobile */
 @media (max-width: 420px) {
-  .logo {
+  .match-index {
     width: 40px;
     height: 40px;
-  }
-  .match-card {
-    padding: 6px;
-  }
-  .compact-match {
-    padding: 6px !important;
-  }
-  .match-card .team,
-  .match-card .player {
-    font-size: 12px !important;
-  }
-  .btn,
-  .btn-small {
-    padding: 6px 8px !important;
-    font-size: 12px !important;
-  }
-  .match-card [style*="min-width: 120px"] {
-    min-width: 100px !important;
-  }
-}
-
-/* PairingStats responsive helpers */
-
-/* hide mobile stacked list on desktop, show on mobile */
-.pairing-cards {
-  display: none;
-}
-
-/* for desktop keep default table; small screens switch to card view */
-@media (max-width: 720px) {
-  .pairing-table-wrap {
-    display: none; /* hide wide table on small screens */
-  }
-  .pairing-cards {
-    display: block; /* show stacked cards */
-  }
-  /* make sure cards use full width and comfortable padding */
-  .pairing-card {
-    width: 100%;
-    background: transparent;
-    border-radius: 8px;
-    padding: 10px 0;
-  }
-  /* tighten table cell spacing if table ever appears */
-  .pairing-table td,
-  .pairing-table th {
-    padding: 8px 6px;
     font-size: 14px;
   }
+  .team-block {
+    min-width: 110px;
+    padding: 6px 8px;
+  }
+  .team-name-main {
+    font-size: 12px;
+  }
+  .team-name-sub {
+    font-size: 11px;
+  }
+  .court-pill {
+    min-width: 70px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .btn {
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+  body {
+    padding: 10px;
+  }
+}
+
+/* --- sign out button --- */
+.signout-btn {
+  background: linear-gradient(90deg, #ef4444, #dc2626);
+  color: #fff;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  box-shadow: 0 4px 10px rgba(239, 68, 68, 0.25);
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.signout-btn:hover {
+  background: linear-gradient(90deg, #dc2626, #b91c1c);
+  transform: translateY(-1px);
+}
+
+.signout-btn:active {
+  transform: translateY(0);
+  background: #b91c1c;
 }

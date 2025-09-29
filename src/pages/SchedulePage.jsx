@@ -11,19 +11,22 @@ import {
   deleteScheduleForDate,
 } from "../api/supabase-actions";
 import MatchCard from "../components/MatchCard";
+import ConfirmModal from "../components/ConfirmModal";
 
 const STORAGE_KEY = "cs_selected_date";
 
 export default function SchedulePage() {
   const [players, setPlayers] = useState([]);
-  const [available, setAvailable] = useState([]); // selected available player ids
-  const [courts, setCourts] = useState(1);
-  const [matchesPerCourt, setMatchesPerCourt] = useState(5);
+  const [available, setAvailable] = useState([]);
+  // Use text inputs for counts so user can type freely; we'll parse when used
+  const [courtsInput, setCourtsInput] = useState("1");
+  const [matchesPerCourtInput, setMatchesPerCourtInput] = useState("5");
+
   const [date, setDate] = useState(() => {
-    // restore from localStorage if present, otherwise today
     const stored = window.localStorage.getItem(STORAGE_KEY);
     return stored || new Date().toISOString().slice(0, 10);
   });
+
   const [preview, setPreview] = useState([]);
   const [savedMatches, setSavedMatches] = useState([]);
   const [pairingMap, setPairingMap] = useState(new Map());
@@ -32,12 +35,27 @@ export default function SchedulePage() {
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [clearing, setClearing] = useState(false);
 
-  // playersMap: id => name for easy lookups in UI
+  // modal state for confirmations (type: "generate" | "save" | "clear")
+  const [modalState, setModalState] = useState({
+    open: false,
+    type: null,
+    payload: null,
+    loading: false,
+  });
+
+  // playersMap for quick name lookup
   const playersMap = Object.fromEntries(
     (players || []).map((p) => [p.id, p.name])
   );
 
-  // load players
+  // Helpers to parse counts (allow empty while typing)
+  const parsePositiveInt = (v, fallback = 1) => {
+    if (v === null || v === undefined) return fallback;
+    const n = parseInt(String(v).trim(), 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+
+  // Load players
   const loadPlayers = useCallback(async () => {
     try {
       const { data, error } = await fetchPlayers();
@@ -48,7 +66,7 @@ export default function SchedulePage() {
     }
   }, []);
 
-  // load pairing/opponent history maps
+  // Load pairing/opponent history maps
   const loadHistory = useCallback(async () => {
     try {
       const pm = await fetchPairingHistoryMap();
@@ -60,7 +78,7 @@ export default function SchedulePage() {
     }
   }, []);
 
-  // load saved matches for the selected date
+  // Load saved matches for date
   const loadSavedMatches = useCallback(async () => {
     try {
       setLoadingMatches(true);
@@ -81,7 +99,7 @@ export default function SchedulePage() {
     loadSavedMatches();
   }, [loadPlayers, loadHistory, loadSavedMatches]);
 
-  // persist date to localStorage whenever it changes
+  // persist date to localStorage
   useEffect(() => {
     if (date) window.localStorage.setItem(STORAGE_KEY, date);
   }, [date]);
@@ -114,36 +132,49 @@ export default function SchedulePage() {
     };
   }, [date, loadSavedMatches]);
 
-  // toggle available player selection
+  // toggle available selection
   function toggleAvailable(id) {
     setAvailable((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   }
 
-  // generate preview schedule using scheduler util and history maps
-  function onGeneratePreview() {
+  //
+  // Actions triggered after user confirms in modal
+  //
+  async function _doGenerate() {
+    // parse inputs
+    const courts = parsePositiveInt(courtsInput, 1);
+    const matchesPerCourt = parsePositiveInt(matchesPerCourtInput, 5);
+
     if (!available || available.length < 4) {
       alert("Select at least 4 available players");
       return;
     }
-    const schedule = generateSchedule({
-      players: available,
-      courts: Number(courts),
-      matchesPerCourt: Number(matchesPerCourt),
-      pairingHistory: pairingMap,
-      opponentHistory: opponentMap,
-    });
-    setPreview(schedule);
-    // after generation, scroll preview into view for faster workflow
-    setTimeout(() => {
-      const el = document.querySelector(".schedule-list");
-      el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-    }, 80);
+
+    try {
+      // generate preview (seeded randomness internal to scheduler)
+      const schedule = generateSchedule({
+        players: available,
+        courts,
+        matchesPerCourt,
+        pairingHistory: pairingMap,
+        opponentHistory: opponentMap,
+        date,
+      });
+      setPreview(schedule);
+      // scroll preview into view
+      setTimeout(() => {
+        const el = document.querySelector(".schedule-list");
+        el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      }, 80);
+    } catch (err) {
+      console.error("generate error", err);
+      alert("Failed to generate schedule: " + (err.message || err));
+    }
   }
 
-  // save preview to DB (do NOT include frontend ids like "m_1")
-  async function onSaveSchedule() {
+  async function _doSave() {
     if (!preview || preview.length === 0) {
       alert("No schedule to save");
       return;
@@ -164,23 +195,17 @@ export default function SchedulePage() {
     }
   }
 
-  async function onClearSchedule() {
+  async function _doClear() {
     if (!date) {
       alert("Please select a date first");
       return;
     }
-    if (
-      !window.confirm(
-        `Clear ALL schedule + scores for ${date}? This cannot be undone.`
-      )
-    )
-      return;
     setClearing(true);
     try {
       const { data, error } = await deleteScheduleForDate(date);
       if (error) throw error;
       await loadSavedMatches();
-      setPreview([]); // remove preview (since schedule removed)
+      setPreview([]);
       await loadHistory();
       window.dispatchEvent(new Event("scores-changed"));
       alert(
@@ -194,6 +219,52 @@ export default function SchedulePage() {
     }
   }
 
+  // Handlers that open confirm modal
+  function handleGenerateConfirm() {
+    // quick validation before opening modal
+    if (!available || available.length < 4) {
+      alert("Select at least 4 available players");
+      return;
+    }
+    setModalState({
+      open: true,
+      type: "generate",
+      payload: null,
+      loading: false,
+    });
+  }
+  function handleSaveConfirm() {
+    if (!preview || preview.length === 0) {
+      alert("No preview available to save. Generate first.");
+      return;
+    }
+    setModalState({ open: true, type: "save", payload: null, loading: false });
+  }
+  function handleClearConfirm() {
+    if (!date) {
+      alert("Please select a date first");
+      return;
+    }
+    setModalState({ open: true, type: "clear", payload: null, loading: false });
+  }
+
+  // confirm modal confirm callback
+  async function handleModalConfirm() {
+    if (!modalState.type) return;
+    setModalState((s) => ({ ...s, loading: true }));
+    try {
+      if (modalState.type === "generate") {
+        await _doGenerate();
+      } else if (modalState.type === "save") {
+        await _doSave();
+      } else if (modalState.type === "clear") {
+        await _doClear();
+      }
+    } finally {
+      setModalState({ open: false, type: null, payload: null, loading: false });
+    }
+  }
+
   return (
     <div className="container">
       <header className="header">
@@ -202,7 +273,6 @@ export default function SchedulePage() {
           <div className="title">Schedule — {date}</div>
         </div>
 
-        {/* Keep a compact date display in header but inputs moved to the players card */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ fontSize: 13, color: "#666" }}>Date:</div>
           <input
@@ -217,28 +287,29 @@ export default function SchedulePage() {
 
       <div className="grid">
         <div>
-          {/* Players card (controls moved here) */}
+          {/* Players + controls card (Generate/Save/Clear moved here) */}
           <div className="card">
             <h3>Select Details</h3>
 
             <div
               style={{
                 display: "flex",
-                alignItems: "center",
                 gap: 12,
-                marginBottom: 12,
+                alignItems: "center",
+                marginBottom: 10,
+                flexWrap: "wrap",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <label className="form-label">Courts</label>
                 <input
                   className="number-input"
-                  type="number"
-                  min={1}
-                  value={courts}
-                  onChange={(e) =>
-                    setCourts(Math.max(1, Number(e.target.value || 1)))
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  value={courtsInput}
+                  onChange={(e) => setCourtsInput(e.target.value)}
+                  placeholder="1"
+                  style={{ minWidth: 70 }}
                 />
               </div>
 
@@ -246,29 +317,41 @@ export default function SchedulePage() {
                 <label className="form-label">Matches/Court</label>
                 <input
                   className="number-input"
-                  type="number"
-                  min={1}
-                  value={matchesPerCourt}
-                  onChange={(e) =>
-                    setMatchesPerCourt(Math.max(1, Number(e.target.value || 1)))
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  value={matchesPerCourtInput}
+                  onChange={(e) => setMatchesPerCourtInput(e.target.value)}
+                  placeholder="5"
+                  style={{ minWidth: 70 }}
                 />
               </div>
 
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <button className="btn generate" onClick={onGeneratePreview}>
+              <div
+                style={{
+                  marginLeft: "auto",
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  className="btn generate"
+                  onClick={handleGenerateConfirm}
+                >
                   Generate
                 </button>
+
                 <button
                   className="btn secondary"
-                  onClick={onSaveSchedule}
-                  disabled={loadingSave}
+                  onClick={handleSaveConfirm}
+                  disabled={loadingSave || preview.length === 0}
                 >
                   {loadingSave ? "Saving..." : "Save"}
                 </button>
+
                 <button
                   className="btn danger"
-                  onClick={onClearSchedule}
+                  onClick={handleClearConfirm}
                   disabled={clearing}
                 >
                   {clearing ? "Clearing..." : "Clear"}
@@ -276,18 +359,16 @@ export default function SchedulePage() {
               </div>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                marginTop: 6,
-              }}
-            >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {players.map((p) => (
                 <label
                   key={p.id}
-                  style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minWidth: 140,
+                  }}
                 >
                   <input
                     type="checkbox"
@@ -360,17 +441,56 @@ export default function SchedulePage() {
         </div>
 
         <aside>
-          {/* Help */}
           <div className="card">
             <h4>Help</h4>
             <p style={{ color: "#555", fontSize: 13 }}>
               Select available players for the date, set courts and matches per
-              court, Generate to preview, then Save Schedule to persist. Any
-              user can record winners — the list will update in real time.
+              court, Generate to preview, then Save to persist. Any user can
+              record winners — the list will update in real time.
             </p>
           </div>
         </aside>
       </div>
+
+      <ConfirmModal
+        open={modalState.open}
+        title={
+          modalState.type === "clear"
+            ? "Clear schedule?"
+            : modalState.type === "save"
+            ? "Save schedule?"
+            : modalState.type === "generate"
+            ? "Generate schedule?"
+            : "Confirm"
+        }
+        message={
+          modalState.type === "clear"
+            ? `This will remove all matches and recorded scores for ${date}. This cannot be undone.`
+            : modalState.type === "save"
+            ? `Save the generated schedule for ${date}? This will persist matches and allow anyone to record winners.`
+            : modalState.type === "generate"
+            ? `Generate a preview schedule now? This will overwrite the preview shown (does not save data until you press Save).`
+            : ""
+        }
+        onCancel={() =>
+          setModalState({
+            open: false,
+            type: null,
+            payload: null,
+            loading: false,
+          })
+        }
+        onConfirm={handleModalConfirm}
+        confirmLabel={
+          modalState.type === "clear"
+            ? "Clear"
+            : modalState.type === "save"
+            ? "Save"
+            : "Generate"
+        }
+        cancelLabel="Cancel"
+        loading={modalState.loading}
+      />
     </div>
   );
 }

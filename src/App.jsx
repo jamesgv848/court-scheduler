@@ -125,8 +125,11 @@ export default function App() {
           {user ? (
             <>
               <div style={{ color: "#333", fontSize: 13 }}>{user.email}</div>
-              <button className="signup-btn secondary" onClick={handleSignOut}>
-                Sign Out
+              <button
+                onClick={handleSignOut}
+                className="btn danger signout-btn"
+              >
+                ⎋ Sign Out
               </button>
             </>
           ) : (

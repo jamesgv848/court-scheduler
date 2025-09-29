@@ -120,12 +120,15 @@ export function subscribeToScores(onChange) {
 // NEW: totals for a specific date (points recorded_at on that date)
 // returns rows: { player_id, name, points_on_date }
 export async function fetchPlayerTotalsForDate(dateStr) {
-  // dateStr is 'YYYY-MM-DD'
+  // Call the existing RPC 'player_totals_by_date' (p_date argument)
   const { data, error } = await supabase.rpc("player_totals_for_date", {
     p_date: dateStr,
   });
-  // If you prefer a SQL SELECT instead of RPC, use supabase.from('scores').select(...) with aggregate,
-  // but using an RPC keeps SQL tidy (RPC DDL below if needed).
+  return { data, error };
+}
+
+export async function fetchPlayerTotalsOverall() {
+  const { data, error } = await supabase.rpc("player_totals_overall");
   return { data, error };
 }
 
