@@ -185,3 +185,133 @@ export async function fetchPairingStatsRecorded(
   });
   return { data, error };
 }
+
+// Simple client-side createManualMatch (non-transactional, simple flow)
+// params:
+//  - matchDate: 'YYYY-MM-DD' (string) or Date
+//  - court: integer or null/empty -> defaults to 1 (to satisfy NOT NULL)
+//  - playerIds: array of 4 player uuids (order: A1, A2, B1, B2)
+// returns: { data, error } where data is { match, scores }
+export async function createManualMatch({
+  matchDate,
+  court = null,
+  playerIds = [],
+} = {}) {
+  // normalize date string
+  const dateStr =
+    matchDate instanceof Date
+      ? matchDate.toISOString().slice(0, 10)
+      : matchDate;
+
+  // Basic validation
+  if (!dateStr) {
+    return { data: null, error: new Error("matchDate is required") };
+  }
+  if (!Array.isArray(playerIds) || playerIds.length < 4) {
+    return {
+      data: null,
+      error: new Error("playerIds must be an array of 4 ids"),
+    };
+  }
+
+  try {
+    // 1) compute next match_index for that date (use MAX(match_index) + 1)
+    // If no rows exist for that date, single() may return an error from PostgREST; handle gracefully.
+    let nextIndex = 1;
+    try {
+      const resp = await supabase
+        .from("matches")
+        .select("match_index")
+        .eq("match_date", dateStr)
+        .order("match_index", { ascending: false })
+        .limit(1)
+        .maybeSingle(); // maybeSingle avoids throwing when no rows
+      if (resp.error) {
+        // log but don't necessarily fail; we'll default nextIndex = 1
+        console.warn(
+          "createManualMatch: error reading max match_index:",
+          resp.error
+        );
+      } else if (resp.data && typeof resp.data.match_index === "number") {
+        nextIndex = resp.data.match_index + 1;
+      }
+    } catch (err) {
+      // fallback: leave nextIndex = 1
+      console.warn("createManualMatch: reading max index failed, using 1", err);
+    }
+
+    // 2) choose court default if not provided (your DB had court NOT NULL)
+    const courtVal = court === null || court === "" ? 1 : Number(court);
+
+    // 3) insert into matches
+    const matchRow = {
+      match_date: dateStr,
+      court: courtVal,
+      match_index: nextIndex,
+      player_ids: playerIds,
+      winner: null,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data: insertedMatches, error: insertMatchErr } = await supabase
+      .from("matches")
+      .insert(matchRow)
+      .select("*");
+
+    if (insertMatchErr) {
+      console.error(
+        "createManualMatch: failed to insert match:",
+        insertMatchErr
+      );
+      return { data: null, error: insertMatchErr };
+    }
+
+    const insertedMatch = Array.isArray(insertedMatches)
+      ? insertedMatches[0]
+      : insertedMatches;
+
+    if (!insertedMatch || !insertedMatch.id) {
+      return { data: null, error: new Error("Failed to insert match row") };
+    }
+
+    // 4) insert initial scores rows for each player (points=0, is_win=false)
+    const scoresRows = playerIds.map((pid) => ({
+      match_id: insertedMatch.id,
+      player_id: pid,
+      points: 0,
+      is_win: false,
+      recorded_at: new Date().toISOString(),
+    }));
+
+    const { data: insertedScores, error: insertScoresErr } = await supabase
+      .from("scores")
+      .insert(scoresRows)
+      .select("*");
+
+    if (insertScoresErr) {
+      console.error(
+        "createManualMatch: failed to insert scores:",
+        insertScoresErr
+      );
+      // Try best-effort cleanup of the match row to avoid dangling match with no scores.
+      try {
+        await supabase.from("matches").delete().eq("id", insertedMatch.id);
+      } catch (cleanupErr) {
+        console.warn(
+          "createManualMatch: failed cleanup after scores error:",
+          cleanupErr
+        );
+      }
+      return { data: null, error: insertScoresErr };
+    }
+
+    // success: return the inserted match row and scores
+    return {
+      data: { match: insertedMatch, scores: insertedScores },
+      error: null,
+    };
+  } catch (err) {
+    console.error("createManualMatch: unexpected error", err);
+    return { data: null, error: err };
+  }
+}

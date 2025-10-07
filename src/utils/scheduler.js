@@ -74,11 +74,9 @@ export function generateSchedule({
     throw new Error("players must be an array of ids");
   const P = players.length;
   if (P < 2) return [];
+  if (P < 4) return []; // not enough players for doubles
 
-  // If less than 4 players, we treat as insufficient for doubles (no matches)
-  if (P < 4) return [];
-
-  // Build a seed string. If randomize=true, include ephemeral entropy
+  // RNG setup
   const entropy = randomize
     ? `${Date.now()}-${Math.floor(Math.random() * 1e9)}`
     : "";
@@ -86,45 +84,39 @@ export function generateSchedule({
   const seed = hashStringToSeed(seedStr);
   const rng = mulberry32(seed);
 
-  // Start with a seeded shuffle so ordering is randomized each generate (or deterministic when randomize=false)
+  // Start ordering
   let baseOrder = seededShuffle(players, rng);
 
-  // Total matches requested
   const totalMatches = Math.max(
     0,
     Math.floor(courts) * Math.floor(matchesPerCourt)
   );
   if (totalMatches <= 0) return [];
 
-  // track how many times each player has been assigned so far (play count)
+  // track usage
   const playCount = {};
   baseOrder.forEach((p) => (playCount[p] = 0));
 
-  // track rest counts for the "no double rest" cycle if enabled.
-  // restCount increments when a player does NOT play in a given round (i.e., across all courts in that round).
   const restCount = {};
   baseOrder.forEach((p) => (restCount[p] = 0));
-  // helper to check if all players have rested at least once in current cycle
+
+  // Track pair usage *within this generated schedule* to discourage immediate repeats
+  const pairUsage = new Map(); // key: canonicalPairKey(a,b) -> count in generated matches
+  // Track matchup usage (teamAKey|teamBKey) within this generated schedule
+  const matchupUsage = new Map(); // key: `${teamAKey}|${teamBKey}` canonical -> count
+
   function allHaveRestedOnce() {
     return baseOrder.every((p) => restCount[p] >= 1);
   }
-  // when cycle completes, reset restCount to zero for all
   function resetRestCycle() {
     baseOrder.forEach((p) => (restCount[p] = 0));
   }
 
   const matches = [];
   let matchIndex = 1;
-
-  // We'll generate matches round-by-round. For double-rest constraint, we update restCount at end of each round.
   const roundsNeeded = Math.ceil(totalMatches / courts);
 
   for (let round = 0; round < roundsNeeded; round++) {
-    // For each round we will allocate up to `courts` matches.
-    // Build pool sorted by:
-    // 1) restCount ascending (so players who have rested less are chosen to play),
-    // 2) playCount ascending (so players who played less are chosen),
-    // 3) seeded random tie-breaker.
     const buildPool = () =>
       baseOrder.slice().sort((a, b) => {
         if (noDoubleRest && restCount[a] !== restCount[b])
@@ -133,58 +125,74 @@ export function generateSchedule({
         return rng() < 0.5 ? -1 : 1;
       });
 
-    // assignedInRound tracks players who got assigned in this round (so don't assign them twice in same round)
     const assignedInRound = new Set();
 
-    // For each court in this round, pick a match
     for (let court = 1; court <= courts; court++) {
-      // Stop if we've already reached totalMatches
       if (matches.length >= totalMatches) break;
 
-      // Build current pool of available players (exclude already assigned this round)
       const poolSorted = buildPool().filter((p) => !assignedInRound.has(p));
 
-      // If not enough distinct players remain for this court, try to allow reuse only if unavoidable
       if (poolSorted.length < 4) {
-        // Try to assemble remaining players by taking from full baseOrder respecting uniqueness as much as possible
+        // fallback: take top unique from baseOrder
         const fallback = [];
         for (const p of baseOrder) {
           if (!fallback.includes(p)) fallback.push(p);
           if (fallback.length >= 4) break;
         }
-        if (fallback.length < 4) {
-          // cannot form more matches this round
-          break;
-        }
-        // assign fallback
+        if (fallback.length < 4) break;
         const finalGroup = fallback.slice(0, 4);
         finalGroup.forEach((p) => {
           assignedInRound.add(p);
           playCount[p] = (playCount[p] || 0) + 1;
         });
-        // record match
+        // record and update pair/match usage
         matches.push({
           match_index: matchIndex++,
           round: round + 1,
           court,
           players: finalGroup,
         });
+        // increment pair usage
+        const [a, b, c, d] = finalGroup;
+        pairUsage.set(
+          canonicalPairKey(a, b),
+          (pairUsage.get(canonicalPairKey(a, b)) || 0) + 1
+        );
+        pairUsage.set(
+          canonicalPairKey(c, d),
+          (pairUsage.get(canonicalPairKey(c, d)) || 0) + 1
+        );
+        // matchup usage
+        const teamAKey = canonicalPairKey(a, b);
+        const teamBKey = canonicalPairKey(c, d);
+        const matchKey =
+          teamAKey < teamBKey
+            ? `${teamAKey}|${teamBKey}`
+            : `${teamBKey}|${teamAKey}`;
+        matchupUsage.set(matchKey, (matchupUsage.get(matchKey) || 0) + 1);
         continue;
       }
 
-      // Normal greedy selection using the sorted pool
-      // 1) pick first from top-K (introduce randomness among top few)
+      // ---- Selection strategy with new pair/match usage penalties ----
+
+      // pick first among top-k
       const FIRST_POOL = Math.min(3, poolSorted.length);
       const first = poolSorted[Math.floor(rng() * FIRST_POOL)];
 
-      // 2) pick second (teammate) minimizing teammatePenalty and preferring lower playCount/restCount
+      // pick second (teammate) with scoring that includes:
+      // - historical pairing (pairingHistory)
+      // - current pairUsage (strong penalty)
+      // - playCount, restCount
       const afterFirst = poolSorted.filter((p) => p !== first);
       let bestSeconds = [];
       let bestSecondScore = Infinity;
       for (const cand of afterFirst) {
-        // weight factors: teammate penalty (from pairingHistory), playCount, restCount
+        const basePenalty = teammatePenalty(first, cand, pairingHistory) * 10;
+        const localPairPenalty =
+          (pairUsage.get(canonicalPairKey(first, cand)) || 0) * 80; // strong local penalty
         const score =
-          teammatePenalty(first, cand, pairingHistory) * 10 +
+          basePenalty +
+          localPairPenalty +
           (playCount[cand] || 0) * 2 +
           (noDoubleRest ? (restCount[cand] || 0) * 5 : 0) +
           rng() * 1.5;
@@ -197,15 +205,31 @@ export function generateSchedule({
       }
       const second = bestSeconds[Math.floor(rng() * bestSeconds.length)];
 
-      // 3) pick third minimizing opponent penalty vs team (first+second)
+      // pick third: candidate from pool excluding first/second
       const afterSecond = afterFirst.filter((p) => p !== second);
       let bestThirds = [];
       let bestThirdScore = Infinity;
+      const teamAKey = canonicalPairKey(first, second);
       for (const cand of afterSecond) {
-        const score =
+        // opponentHistory penalizes repeated opponents historically
+        const baseOppPenalty =
           (opponentPenalty(first, cand, opponentHistory) +
             opponentPenalty(second, cand, opponentHistory)) *
-            10 +
+          10;
+        // also penalize if this candidate would create repeated team-vs-team matchup with existing teams in matches
+        // We'll approximate matchup penalty by checking how often cand has been on the other side vs teamAKey in this generated schedule:
+        let matchupPenaltyLocal = 0;
+        // iterate existing matchups to compute how often teamAKey faced the player cand's pair (approx)
+        // We will check pairUsage of pairs involving cand and matchups toward teamAKey via matchupUsage (approx)
+        // Simpler: penalize if cand has teamed previously with any player who already faced teamAKey in this schedule
+        matchupPenaltyLocal +=
+          (pairUsage.get(canonicalPairKey(cand, first)) || 0) * 8;
+        matchupPenaltyLocal +=
+          (pairUsage.get(canonicalPairKey(cand, second)) || 0) * 8;
+
+        const score =
+          baseOppPenalty +
+          matchupPenaltyLocal +
           (playCount[cand] || 0) * 2 +
           (noDoubleRest ? (restCount[cand] || 0) * 5 : 0) +
           rng() * 1.5;
@@ -218,13 +242,26 @@ export function generateSchedule({
       }
       const third = bestThirds[Math.floor(rng() * bestThirds.length)];
 
-      // 4) pick fourth (teammate for third) minimizing teammate penalty + opponent penalties
+      // pick fourth (teammate for third) - include pairUsage penalty for that teammate
       const afterThird = afterSecond.filter((p) => p !== third);
       let bestFourths = [];
       let bestFourthScore = Infinity;
       for (const cand of afterThird) {
+        const basePenalty = teammatePenalty(third, cand, pairingHistory) * 10;
+        const localPairPenalty =
+          (pairUsage.get(canonicalPairKey(third, cand)) || 0) * 80;
+        // also penalize if this candidate would create repeated matchup with teamAKey
+        const teamBKeyCandidate = canonicalPairKey(third, cand);
+        const matchKeyCandidate =
+          teamAKey < teamBKeyCandidate
+            ? `${teamAKey}|${teamBKeyCandidate}`
+            : `${teamBKeyCandidate}|${teamAKey}`;
+        const matchupLocalPenalty =
+          (matchupUsage.get(matchKeyCandidate) || 0) * 120; // prefer new matchups strongly
         const score =
-          teammatePenalty(third, cand, pairingHistory) * 10 +
+          basePenalty +
+          localPairPenalty +
+          matchupLocalPenalty +
           (opponentPenalty(first, cand, opponentHistory) +
             opponentPenalty(second, cand, opponentHistory)) *
             8 +
@@ -244,22 +281,20 @@ export function generateSchedule({
       let group = [first, second, third, fourth];
       let uniq = [...new Set(group)].slice(0, 4);
       if (uniq.length < 4) {
-        // fill with top items from poolSorted not already in uniq
         for (const p of poolSorted) {
           if (!uniq.includes(p)) uniq.push(p);
           if (uniq.length >= 4) break;
         }
       }
       if (uniq.length < 4) {
-        // as a last resort, take from baseOrder
         for (const p of baseOrder) {
           if (!uniq.includes(p)) uniq.push(p);
           if (uniq.length >= 4) break;
         }
       }
-      if (uniq.length < 4) break; // cannot form a valid match
+      if (uniq.length < 4) break;
 
-      // local swap attempts to reduce penalties (same logic as before)
+      // try a couple arrangements to reduce penalty
       function arrangementPenalty(arr) {
         const [a, b, c, d] = arr;
         let p = 0;
@@ -275,7 +310,6 @@ export function generateSchedule({
           (playCount[c] || 0) +
           (playCount[d] || 0);
         if (noDoubleRest) {
-          // penalize selecting high-rest players if that would violate cycle constraints (we'll prefer low-rest players)
           p +=
             ((restCount[a] || 0) +
               (restCount[b] || 0) +
@@ -283,8 +317,20 @@ export function generateSchedule({
               (restCount[d] || 0)) *
             2;
         }
+        // local pair usage penalties - prefer pairs that haven't been used
+        p += (pairUsage.get(canonicalPairKey(a, b)) || 0) * 80;
+        p += (pairUsage.get(canonicalPairKey(c, d)) || 0) * 80;
+        // local matchup penalty if teamA vs teamB already used
+        const teamAKeyLocal = canonicalPairKey(a, b);
+        const teamBKeyLocal = canonicalPairKey(c, d);
+        const matchKeyLocal =
+          teamAKeyLocal < teamBKeyLocal
+            ? `${teamAKeyLocal}|${teamBKeyLocal}`
+            : `${teamBKeyLocal}|${teamAKeyLocal}`;
+        p += (matchupUsage.get(matchKeyLocal) || 0) * 120;
         return p;
       }
+
       const orig = uniq.slice(0, 4);
       const try1 = [orig[0], orig[2], orig[1], orig[3]];
       const try2 = [orig[0], orig[3], orig[2], orig[1]];
@@ -303,8 +349,8 @@ export function generateSchedule({
       bestArr = tied[Math.floor(rng() * tied.length)];
       const finalGroup = bestArr.slice(0, 4);
 
-      // assign this match to a court balancing counts
-      const courtCounts = new Array(courts).fill(0);
+      // choose court balancing counts
+      /**const courtCounts = new Array(courts).fill(0);
       for (const m of matches) courtCounts[m.court - 1]++;
       const minCount = Math.min(...courtCounts);
       const candidateCourts = [];
@@ -312,7 +358,10 @@ export function generateSchedule({
         if (courtCounts[ci] === minCount) candidateCourts.push(ci + 1);
       }
       const chosenCourt =
-        candidateCourts[Math.floor(rng() * candidateCourts.length)];
+        candidateCourts[Math.floor(rng() * candidateCourts.length)];**/
+
+      // --- NEW deterministic court assignment ---
+      const chosenCourt = court; // use the loop index (1..courts) so each round assigns courts in ascending order
 
       // record match
       matches.push({
@@ -322,13 +371,24 @@ export function generateSchedule({
         players: finalGroup,
       });
 
-      // mark assigned for this round and update playCount
+      // mark assigned and update playCount
       finalGroup.forEach((p) => {
         assignedInRound.add(p);
         playCount[p] = (playCount[p] || 0) + 1;
       });
 
-      // small mutation of baseOrder to push just-played players toward tail so resting players surface
+      // update pairUsage and matchupUsage (important new step)
+      const [a, b, c, d] = finalGroup;
+      const team1 = canonicalPairKey(a, b);
+      const team2 = canonicalPairKey(c, d);
+
+      pairUsage.set(team1, (pairUsage.get(team1) || 0) + 1);
+      pairUsage.set(team2, (pairUsage.get(team2) || 0) + 1);
+
+      const mk = team1 < team2 ? `${team1}|${team2}` : `${team2}|${team1}`;
+      matchupUsage.set(mk, (matchupUsage.get(mk) || 0) + 1);
+
+      // mutate baseOrder to push just-played players toward tail so resting players surface
       const justPlayedSet = new Set(finalGroup);
       const newOrder = [];
       const tail = [];
@@ -346,20 +406,18 @@ export function generateSchedule({
         baseOrder[i] = baseOrder[j];
         baseOrder[j] = tmp;
       }
-    } // end for each court in round
+    } // end courts loop
 
-    // After all courts in this round are processed, update rest counts if noDoubleRest is enabled
+    // After the round: update rest counts for noDoubleRest
     if (noDoubleRest) {
-      // players who did NOT play this round (i.e., not in assignedInRound) get restCount++
       for (const p of baseOrder) {
         if (!assignedInRound.has(p)) restCount[p] = (restCount[p] || 0) + 1;
       }
-      // If everyone has rested at least once, reset cycle (so rest counts start fresh and nobody will rest twice before next everyone-rest)
       if (allHaveRestedOnce()) {
         resetRestCycle();
       }
     }
-    // continue to next round
+
     if (matches.length >= totalMatches) break;
   } // end rounds loop
 

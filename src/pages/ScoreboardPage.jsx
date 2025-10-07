@@ -13,7 +13,7 @@ export default function ScoreboardPage() {
   const [loadingDate, setLoadingDate] = useState(false);
   const [error, setError] = useState(null);
 
-  // Normalizer
+  // Normalizer: bring remote row into consistent shape
   function normalizeRow(row) {
     return {
       id:
@@ -29,6 +29,7 @@ export default function ScoreboardPage() {
     };
   }
 
+  // load overall scoreboard
   const loadOverall = useCallback(async () => {
     setLoadingOverall(true);
     setError(null);
@@ -45,6 +46,7 @@ export default function ScoreboardPage() {
     }
   }, []);
 
+  // load scoreboard for a specific date
   const loadByDate = useCallback(
     async (d = date) => {
       if (!d) {
@@ -68,6 +70,7 @@ export default function ScoreboardPage() {
     [date]
   );
 
+  // initial load and refresh on "scores-changed"
   useEffect(() => {
     loadOverall();
     if (date) loadByDate(date);
@@ -86,40 +89,98 @@ export default function ScoreboardPage() {
     if (val) loadByDate(val);
     else setByDate([]);
   }
+
   function clearDate() {
     setDate("");
     setByDate([]);
   }
 
+  /* ---------- Table component (desktop & wide screens) ---------- */
   function ScoreTable({ rows }) {
     return (
-      <table
-        className="paired-table"
-        style={{ width: "100%", borderCollapse: "collapse" }}
-      >
-        <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
-            <th style={{ padding: 8 }}>No</th>
-            <th style={{ padding: 8 }}>Player</th>
-            <th style={{ padding: 8, textAlign: "center" }}>Matches</th>
-            <th style={{ padding: 8, textAlign: "center" }}>Wins</th>
-            <th style={{ padding: 8, textAlign: "center" }}>Points</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, idx) => (
-            <tr key={r.id ?? idx} style={{ borderBottom: "1px solid #fafafa" }}>
-              <td style={{ padding: 8 }}>{idx + 1}</td>
-              <td style={{ padding: 8 }}>{r.name}</td>
-              <td style={{ padding: 8, textAlign: "center" }}>{r.matches}</td>
-              <td style={{ padding: 8, textAlign: "center" }}>{r.wins}</td>
-              <td style={{ padding: 8, textAlign: "center", fontWeight: 700 }}>
-                {r.points}
-              </td>
+      <div className="table-wrap" style={{ width: "100%", overflowX: "auto" }}>
+        <table
+          className="paired-table"
+          style={{ width: "100%", borderCollapse: "collapse" }}
+        >
+          <thead>
+            <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
+              <th style={{ padding: 8, width: 60 }}>No</th>
+              <th style={{ padding: 8 }}>Player</th>
+              <th style={{ padding: 8, textAlign: "center", width: 90 }}>
+                Matches
+              </th>
+              <th style={{ padding: 8, textAlign: "center", width: 90 }}>
+                Wins
+              </th>
+              <th style={{ padding: 8, textAlign: "center", width: 110 }}>
+                Points
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r, idx) => (
+              <tr
+                key={r.id ?? idx}
+                style={{ borderBottom: "1px solid #fafafa" }}
+              >
+                <td style={{ padding: 8 }}>{idx + 1}</td>
+                <td style={{ padding: 8 }}>{r.name}</td>
+                <td style={{ padding: 8, textAlign: "center" }}>{r.matches}</td>
+                <td style={{ padding: 8, textAlign: "center" }}>{r.wins}</td>
+                <td
+                  style={{
+                    padding: 8,
+                    textAlign: "center",
+                    fontWeight: 700,
+                  }}
+                >
+                  {r.points}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  /* ---------- Mobile stacked cards component (small screens) ---------- */
+  function ScoreCardRows({ rows }) {
+    return (
+      <div>
+        {rows.map((r, idx) => (
+          <div key={r.id ?? idx} className="pair-row-card">
+            <div className="pair-row-grid" style={{ alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    background: "rgba(11,113,208,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 800,
+                  }}
+                >
+                  {idx + 1}
+                </div>
+                <div style={{ fontWeight: 700 }}>{r.name}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 12, color: "#666" }}>
+                  {r.matches} matches
+                </div>
+                <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                  Wins: {r.wins} • Points: <strong>{r.points}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     );
   }
 
@@ -174,7 +235,12 @@ export default function ScoreboardPage() {
           {loadingOverall && <div>Loading overall scores…</div>}
           {!loadingOverall && overall.length === 0 && <div>No scores yet.</div>}
           {!loadingOverall && overall.length > 0 && (
-            <ScoreTable rows={overall} />
+            <>
+              {/* Desktop table (visible on wide screens) */}
+              <ScoreTable rows={overall} />
+              {/* Mobile stacked cards (visible on small screens via CSS) */}
+              <ScoreCardRows rows={overall} />
+            </>
           )}
         </div>
 
@@ -188,7 +254,15 @@ export default function ScoreboardPage() {
             <div>No recorded scores found for {date}.</div>
           )}
           {date && !loadingDate && byDate.length > 0 && (
-            <ScoreTable rows={byDate} />
+            <>
+              <ScoreTable rows={byDate} />
+              <ScoreCardRows rows={byDate} />
+            </>
+          )}
+          {!date && (
+            <div style={{ color: "#666" }}>
+              No date selected. Choose a date above to see that day's scores.
+            </div>
           )}
         </div>
       </div>

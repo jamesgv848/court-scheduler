@@ -7,6 +7,8 @@ import PlayersPage from "./pages/PlayersPage";
 import AuthPage from "./pages/AuthPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PairingStats from "./pages/PairingStats";
+import FixedPairsSchedulePage from "./pages/FixedPairsSchedulePage";
+import RegisterMatchPage from "./pages/RegisterMatchPage";
 import { supabase } from "./supabaseClient";
 
 import { Trophy } from "lucide-react"; // badminton shuttlecock icon
@@ -115,6 +117,22 @@ export default function App() {
             >
               Pairing Stats
             </NavLink>
+            <NavLink
+              to="/fixed-pairs"
+              className={({ isActive }) =>
+                `nav-button ${isActive ? "active" : ""}`
+              }
+            >
+              Fixed Pairs
+            </NavLink>
+            <NavLink
+              to="/register-game"
+              className={({ isActive }) =>
+                `nav-button ${isActive ? "active" : ""}`
+              }
+            >
+              Register Game
+            </NavLink>
           </nav>
         </div>
 
@@ -210,6 +228,23 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/fixed-pairs"
+            element={
+              <ProtectedRoute>
+                <FixedPairsSchedulePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/register-game"
+            element={
+              <ProtectedRoute>
+                <RegisterMatchPage />
+              </ProtectedRoute>
+            }
+          />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

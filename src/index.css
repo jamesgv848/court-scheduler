@@ -617,3 +617,145 @@ input[type="email"] {
 .auth-btn:active {
   transform: translateY(0);
 }
+
+/* === Mobile wrapping fixes for match card (paste at end of src/index.css) === */
+
+/* Ensure container remains centered & fluid */
+.container {
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* Make sure match rows can wrap and don't cause horizontal overflow */
+.match-card {
+  display: flex;
+  flex-wrap: wrap; /* allow wrapping */
+  align-items: flex-start; /* allow actions to go below */
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Left side (index + teams) becomes full width on small screens */
+.match-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 100%; /* grow & shrink, take full width */
+  min-width: 0; /* important to allow children to shrink */
+}
+
+/* Index block keeps fixed size but smaller on phones */
+.match-index {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 14px;
+}
+
+/* Teams container: allow wrapping of team blocks */
+.teams {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0; /* allow shrink */
+  flex-wrap: wrap;
+}
+
+/* Team block sizing: two per row where possible */
+.team-block {
+  flex: 1 1 calc(50% - 10px); /* try two per row on narrow screens */
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+/* If space is extremely tight, stack team blocks full width */
+@media (max-width: 340px) {
+  .team-block {
+    flex-basis: 100%;
+  }
+}
+
+/* Team name typography reduced on small screens */
+.team-name-main {
+  font-size: 13px;
+}
+.team-name-sub {
+  font-size: 11px;
+}
+
+/* Right side: court and buttons — move below teams on narrow screens */
+.match-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 100%; /* occupy a new row under teams */
+  min-width: 0;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+/* Make court pill and buttons align properly when wrapped */
+.match-right > * {
+  flex: 0 0 auto;
+}
+
+/* Reduce action button sizes on very small screens */
+@media (max-width: 420px) {
+  .btn,
+  .btn.small {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  .court-pill {
+    padding: 6px 8px;
+    min-width: 68px;
+    font-size: 12px;
+  }
+  .match-index {
+    width: 40px;
+    height: 40px;
+    font-size: 13px;
+  }
+}
+
+/* Completed match styling still applies, but avoid large box-shadows on mobile */
+@media (max-width: 420px) {
+  .match-completed {
+    border-width: 2px;
+    box-shadow: 0 6px 16px rgba(11, 113, 208, 0.05);
+  }
+}
+
+/* Prevent accidental horizontal scroll in the schedule area */
+.schedule-list,
+.card {
+  overflow-x: visible;
+}
+
+/* small improvement: long player names ellipsize so they don't expand row */
+.team-names,
+.team-name-main,
+.team-name-sub {
+  min-width: 0;
+}
+.team-name-main,
+.team-name-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
