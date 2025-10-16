@@ -5,6 +5,7 @@ import ConfirmModal from "./ConfirmModal";
 import {
   recordTeamWinner as apiRecordTeamWinner,
   undoWinner as apiUndoWinner,
+  deleteMatchById as apiDeleteMatchById,
 } from "../api/supabase-actions";
 
 /**
@@ -15,6 +16,7 @@ import {
  *  - After recording, the winning team block turns colored and shows a small trophy icon.
  *  - Clear button (undo) removes winner & points.
  *  - Completed matches get a stronger border to indicate finality.
+ *  - New: Remove (delete) button to delete a single match (only shown when no winner).
  */
 export default function MatchCard({ match, playersMap = {}, onChange }) {
   const [busy, setBusy] = useState(false);
@@ -54,6 +56,9 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
   function openConfirmUndo() {
     setConfirmState({ open: true, type: "undo", payload: null });
   }
+  function openConfirmDelete() {
+    setConfirmState({ open: true, type: "delete", payload: null });
+  }
 
   async function doRecordTeamWin(teamPlayers) {
     setConfirmState({ open: false, type: null, payload: null });
@@ -61,6 +66,7 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     setBusy(true);
     try {
       const res = await apiRecordTeamWinner(match.id, teamPlayers);
+      console.log("recordTeamWinner result:", res);
       if (res.error) throw res.error;
       onChange && onChange();
       window.dispatchEvent(new Event("scores-changed"));
@@ -89,6 +95,25 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     }
   }
 
+  async function doDeleteMatch() {
+    setConfirmState({ open: false, type: null, payload: null });
+    if (!match?.id) return alert("Match ID missing");
+    // extra safety: confirm UI already prevents deleting matches with winner
+    setBusy(true);
+    try {
+      const res = await apiDeleteMatchById(match.id);
+      if (res.error) throw res.error;
+      onChange && onChange();
+      // notify other pages (scoreboard, pairing stats) that scores/matches changed
+      window.dispatchEvent(new Event("scores-changed"));
+    } catch (err) {
+      console.error("deleteMatchById error", err);
+      alert("Failed to delete match: " + (err.message || JSON.stringify(err)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // TEAM BLOCK: clickable - shows names stacked; when emphasized, uses color background and trophy
   function TeamBlock({ ids = [], label = "A", emphasized = false }) {
     const [p0 = "", p1 = ""] = ids;
@@ -96,7 +121,6 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     const color = isA ? "#0b71d0" : "#059669"; // A: blue, B: green
     const bg = emphasized ? color : "#fff";
     const textColor = emphasized ? "#fff" : color;
-    const subColor = emphasized ? "rgba(255,255,255,0.92)" : "#6b7280";
 
     return (
       // use CSS class team-block (defined in index.css) so sizing & flex behavior is consistent
@@ -196,6 +220,17 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
             >
               {busy ? "Working…" : "B Win"}
             </button>
+
+            {/* Remove (delete) button: only shown when there's no winner */}
+            <button
+              className="btn btn-small btn-danger-outline"
+              onClick={openConfirmDelete}
+              disabled={busy}
+              title="Remove this match (only allowed if no winner recorded)"
+              style={{ marginLeft: 8 }}
+            >
+              {busy ? "…" : "Remove"}
+            </button>
           </>
         )}
       </div>
@@ -206,11 +241,15 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
         title={
           confirmState.type === "undo"
             ? "Clear match winner?"
+            : confirmState.type === "delete"
+            ? "Remove match?"
             : "Confirm winner"
         }
         message={
           confirmState.type === "undo"
             ? "This will remove the recorded winner and subtract awarded points for this match. This cannot be undone."
+            : confirmState.type === "delete"
+            ? "This will permanently remove this match (and any associated scores). This action cannot be undone."
             : confirmState.type === "teamRecord"
             ? `Mark ${
                 confirmState.payload
@@ -226,8 +265,15 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
           if (confirmState.type === "teamRecord")
             doRecordTeamWin(confirmState.payload);
           else if (confirmState.type === "undo") doUndo();
+          else if (confirmState.type === "delete") doDeleteMatch();
         }}
-        confirmLabel={confirmState.type === "undo" ? "Clear" : "Confirm"}
+        confirmLabel={
+          confirmState.type === "undo"
+            ? "Clear"
+            : confirmState.type === "delete"
+            ? "Remove"
+            : "Confirm"
+        }
         cancelLabel="Cancel"
         loading={busy}
       />

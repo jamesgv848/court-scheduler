@@ -2,25 +2,58 @@
 import { supabase } from "../supabaseClient";
 
 export async function saveScheduleToDb(schedule, matchDate) {
-  // Do NOT include the frontend id like "m_1" — let DB generate uuid
-  const rows = schedule.map((s) => ({
-    // id: omit this field so DB uses default gen_random_uuid()
-    match_date:
-      matchDate instanceof Date
-        ? matchDate.toISOString().slice(0, 10)
-        : matchDate,
-    court: s.court,
-    match_index: s.match_index,
-    player_ids: s.players, // array of uuids
-    winner: null,
-    created_at: new Date().toISOString(),
-  }));
+  // quick guard
+  if (!Array.isArray(schedule) || schedule.length === 0) {
+    return { data: [], error: null };
+  }
 
-  const { data, error } = await supabase
-    .from("matches")
-    .insert(rows)
-    .select("*");
-  return { data, error };
+  // normalize date string
+  const dateStr =
+    matchDate instanceof Date
+      ? matchDate.toISOString().slice(0, 10)
+      : matchDate;
+
+  try {
+    // 1) read current max(match_index) for the date
+    const resp = await supabase
+      .from("matches")
+      .select("match_index")
+      .eq("match_date", dateStr)
+      .order("match_index", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (resp.error) {
+      // if reading fails, return error so caller can handle
+      return { data: null, error: resp.error };
+    }
+
+    const currentMax =
+      resp && resp.data && typeof resp.data.match_index === "number"
+        ? resp.data.match_index
+        : 0;
+
+    // 2) create rows with incremented match_index starting after currentMax
+    const rows = schedule.map((s, idx) => ({
+      match_date: dateStr,
+      court: s.court,
+      match_index: currentMax + idx + 1,
+      player_ids: s.players,
+      winner: null,
+      created_at: new Date().toISOString(),
+    }));
+
+    // 3) insert into DB
+    const { data, error } = await supabase
+      .from("matches")
+      .insert(rows)
+      .select("*");
+
+    return { data, error };
+  } catch (err) {
+    console.error("saveScheduleToDb unexpected error", err);
+    return { data: null, error: err };
+  }
 }
 
 export async function fetchMatchesForDate(dateStr) {
@@ -32,12 +65,49 @@ export async function fetchMatchesForDate(dateStr) {
   return { data, error };
 }
 
-export async function recordTeamWinner(matchId, winnerPlayerIds) {
+/**export async function recordTeamWinner(matchId, winnerPlayerIds) {
   const { data, error } = await supabase.rpc("record_team_winner", {
     p_match_id: matchId,
     p_winner_ids: winnerPlayerIds,
   });
   return { data, error };
+}**/
+
+export async function recordTeamWinner(matchId, winnerPlayerIds) {
+  if (!matchId) {
+    return { data: null, error: new Error("matchId is required") };
+  }
+
+  try {
+    // ensure scores rows exist (insert missing zeroed rows if needed)
+    if (typeof ensureScoresForMatch === "function") {
+      const ensure = await ensureScoresForMatch(matchId);
+      if (!ensure.ok) {
+        // if ensure failed, return the error so caller can handle
+        return { data: null, error: ensure.error, ensure };
+      }
+    }
+
+    // call RPC to record team winner
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      "record_team_winner",
+      {
+        p_match_id: matchId,
+        p_winner_ids: winnerPlayerIds,
+      }
+    );
+
+    // fetch scores after RPC so caller can inspect if points were updated
+    const { data: scores, error: scoresError } = await fetchScoresForMatch(
+      matchId
+    );
+
+    // return everything useful for diagnostics / UI update
+    return { data: rpcData, error: rpcError, scores, scoresError };
+  } catch (err) {
+    console.error("recordTeamWinner unexpected", err);
+    return { data: null, error: err };
+  }
 }
 
 export async function recordSingleWinner(matchId, winnerPlayerId) {
@@ -313,5 +383,116 @@ export async function createManualMatch({
   } catch (err) {
     console.error("createManualMatch: unexpected error", err);
     return { data: null, error: err };
+  }
+}
+
+// delete a single match by id (also deletes any scores for that match).
+export async function deleteMatchById(matchId) {
+  if (!matchId) {
+    return { data: null, error: new Error("matchId is required") };
+  }
+
+  try {
+    // 1) delete scores for that match (best-effort)
+    const { error: delScoresErr } = await supabase
+      .from("scores")
+      .delete()
+      .eq("match_id", matchId);
+
+    if (delScoresErr) {
+      // return early on error
+      return { data: null, error: delScoresErr };
+    }
+
+    // 2) delete match row
+    const { data: deletedMatches, error: delMatchErr } = await supabase
+      .from("matches")
+      .delete()
+      .eq("id", matchId)
+      .select("*");
+
+    if (delMatchErr) {
+      return { data: null, error: delMatchErr };
+    }
+
+    // return deleted match rows (array or single depending on PostgREST)
+    return { data: deletedMatches, error: null };
+  } catch (err) {
+    console.error("deleteMatchById unexpected error", err);
+    return { data: null, error: err };
+  }
+}
+
+// fetch scores rows for a match id
+export async function fetchScoresForMatch(matchId) {
+  if (!matchId) {
+    return { data: null, error: new Error("matchId is required") };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("scores")
+      .select("*")
+      .eq("match_id", matchId)
+      .order("player_id", { ascending: true });
+    return { data, error };
+  } catch (err) {
+    console.error("fetchScoresForMatch unexpected", err);
+    return { data: null, error: err };
+  }
+}
+
+// ensure that there are score rows for a match; if missing insert them with zeros
+export async function ensureScoresForMatch(matchId) {
+  if (!matchId) return { ok: false, error: new Error("matchId is required") };
+
+  try {
+    const { data: existingScores, error: existingErr } = await supabase
+      .from("scores")
+      .select("player_id")
+      .eq("match_id", matchId);
+
+    if (existingErr) return { ok: false, error: existingErr };
+
+    const existingIds = new Set(
+      (existingScores || []).map((r) => String(r.player_id))
+    );
+    // If there are already 4 rows, assume fine (you can adjust threshold)
+    if ((existingIds.size || 0) >= 4) return { ok: true, inserted: 0 };
+
+    // fetch match to get player_ids
+    const { data: matchRow, error: matchErr } = await supabase
+      .from("matches")
+      .select("player_ids")
+      .eq("id", matchId)
+      .limit(1)
+      .maybeSingle();
+
+    if (matchErr) return { ok: false, error: matchErr };
+    if (!matchRow || !Array.isArray(matchRow.player_ids))
+      return { ok: false, error: new Error("match row or player_ids missing") };
+
+    const toInsert = matchRow.player_ids
+      .map((p) => String(p))
+      .filter((pid) => !existingIds.has(pid))
+      .map((pid) => ({
+        match_id: matchId,
+        player_id: pid,
+        points: 0,
+        is_win: false,
+        recorded_at: new Date().toISOString(),
+      }));
+
+    if (toInsert.length === 0) return { ok: true, inserted: 0 };
+
+    const { data: inserted, error: insertErr } = await supabase
+      .from("scores")
+      .insert(toInsert)
+      .select("*");
+
+    if (insertErr) return { ok: false, error: insertErr };
+    return { ok: true, inserted: inserted.length, rows: inserted };
+  } catch (err) {
+    console.error("ensureScoresForMatch unexpected", err);
+    return { ok: false, error: err };
   }
 }

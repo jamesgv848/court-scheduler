@@ -25,6 +25,7 @@ export default function ScoreboardPage() {
       name: row.name ?? row.player_name ?? row.player ?? "Unknown",
       matches: Number(row.matches ?? row.total_matches ?? row.match_count ?? 0),
       wins: Number(row.wins ?? row.total_wins ?? 0),
+      // points intentionally preserved in row shape if present (we just don't display it)
       points: Number(row.total_points ?? row.points_on_date ?? row.points ?? 0),
     };
   }
@@ -113,9 +114,7 @@ export default function ScoreboardPage() {
               <th style={{ padding: 8, textAlign: "center", width: 90 }}>
                 Wins
               </th>
-              <th style={{ padding: 8, textAlign: "center", width: 110 }}>
-                Points
-              </th>
+              {/* Points column intentionally hidden */}
             </tr>
           </thead>
           <tbody>
@@ -128,15 +127,7 @@ export default function ScoreboardPage() {
                 <td style={{ padding: 8 }}>{r.name}</td>
                 <td style={{ padding: 8, textAlign: "center" }}>{r.matches}</td>
                 <td style={{ padding: 8, textAlign: "center" }}>{r.wins}</td>
-                <td
-                  style={{
-                    padding: 8,
-                    textAlign: "center",
-                    fontWeight: 700,
-                  }}
-                >
-                  {r.points}
-                </td>
+                {/* Points cell removed */}
               </tr>
             ))}
           </tbody>
@@ -174,7 +165,7 @@ export default function ScoreboardPage() {
                   {r.matches} matches
                 </div>
                 <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
-                  Wins: {r.wins} • Points: <strong>{r.points}</strong>
+                  Wins: {r.wins}
                 </div>
               </div>
             </div>

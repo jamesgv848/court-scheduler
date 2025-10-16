@@ -3,7 +3,6 @@ import React, { useEffect, useState, useCallback } from "react";
 import ConfirmModal from "../components/ConfirmModal";
 import { fetchPlayers, saveScheduleToDb } from "../api/supabase-actions";
 import { generatePairSchedule } from "../utils/pairScheduler";
-
 /**
  * FixedPairsSchedulePage
  * - Add fixed pairs (pairs remain intact)
@@ -12,13 +11,11 @@ import { generatePairSchedule } from "../utils/pairScheduler";
  *
  * Mobile-first layout; uses ConfirmModal for confirmations.
  */
-
 export default function FixedPairsSchedulePage({ navigateBack }) {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [courts, setCourts] = useState("1"); // keep as string so input is easy
   const [matchesPerCourt, setMatchesPerCourt] = useState("5");
   const [seedDeterministic, setSeedDeterministic] = useState(true);
-
   const [players, setPlayers] = useState([]);
   const [pairs, setPairs] = useState([]); // { id, players:[uuid,uuid], name }
   const [pairForm, setPairForm] = useState({ a: "", b: "" });
@@ -46,18 +43,15 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
       setLoadingPlayers(false);
     }
   }, []);
-
   useEffect(() => {
     loadPlayers();
   }, [loadPlayers]);
 
   // helpers to map id -> player
   const playersMap = Object.fromEntries((players || []).map((p) => [p.id, p]));
-
   function resetPairForm() {
     setPairForm({ a: "", b: "" });
   }
-
   function addPair() {
     const a = pairForm.a;
     const b = pairForm.b;
@@ -88,11 +82,9 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
     resetPairForm();
     setMessage(null);
   }
-
   function removePair(id) {
     setPairs((p) => p.filter((x) => x.id !== id));
   }
-
   function validateInputs() {
     const c = parseInt(courts || "0", 10);
     const m = parseInt(matchesPerCourt || "0", 10);
@@ -102,7 +94,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
       return "Add at least two pairs to generate a schedule.";
     return null;
   }
-
   function onGenerate() {
     setMessage(null);
     const err = validateInputs();
@@ -136,7 +127,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
       el?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   }
-
   function onSaveClicked() {
     if (!preview || preview.length === 0) {
       setMessage("No preview to save. Generate first.");
@@ -148,7 +138,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
       payload: { count: preview.length },
     });
   }
-
   async function doSave() {
     setConfirm({ open: false, type: null, payload: null });
     setSaving(true);
@@ -177,7 +166,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
       setSaving(false);
     }
   }
-
   function onClearPairsClicked() {
     if (pairs.length === 0) {
       setMessage("No pairs to clear.");
@@ -185,7 +173,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
     }
     setConfirm({ open: true, type: "clear_pairs", payload: null });
   }
-
   function doClearPairs() {
     setConfirm({ open: false, type: null, payload: null });
     setPairs([]);
@@ -195,6 +182,90 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
 
   return (
     <div className="container" style={{ padding: 12 }}>
+      {/* component-scoped CSS kept here per request */}
+      <style>{`
+        /* match card */
+        .match-card {
+          border-radius: 8px;
+          background: #fff;
+          box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+        }
+
+        /* row containing entire match */
+        .match-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          width: 100%;
+        }
+
+        /* central area with teams and vs */
+        .teams-area {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex: 1;
+          min-width: 0; /* allow flex children to shrink */
+        }
+
+        /* each team block should be allowed to shrink and clamp overflow */
+        .team {
+          min-width: 0;
+          flex: 1;
+          overflow: hidden;
+        }
+
+        .names {
+          font-weight: 700;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          display: block;
+        }
+
+        .vs {
+          color: #9ca3af;
+          font-weight: 700;
+          white-space: nowrap;
+          flex: 0 0 auto;
+        }
+
+        .meta {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          white-space: nowrap;
+          flex: 0 0 auto;
+        }
+
+        .court-pill {
+          padding: 6px 10px;
+          border-radius: 18px;
+          background: rgba(59,130,246,0.12);
+          font-weight: 700;
+          min-width: 56px;
+          text-align: center;
+        }
+
+        .badge {
+          font-size: 12px;
+          color: #374151;
+        }
+
+        /* responsive */
+        @media (max-width: 480px) {
+          .teams-area {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+          }
+          .meta {
+            margin-top: 8px;
+          }
+          .court-pill { min-width: 48px; padding: 6px 8px; }
+        }
+      `}</style>
+
       <div
         style={{
           display: "flex",
@@ -222,7 +293,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
-
           <label className="form-label">Courts</label>
           <input
             className="number-input"
@@ -233,7 +303,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
             style={{ minWidth: 58 }}
             aria-label="Courts"
           />
-
           <label className="form-label">Matches/Court</label>
           <input
             className="number-input"
@@ -246,7 +315,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
             style={{ minWidth: 72 }}
             aria-label="Matches per court"
           />
-
           <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <input
               type="checkbox"
@@ -255,7 +323,6 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
             />
             deterministic
           </label>
-
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <button className="btn generate" onClick={onGenerate}>
               Generate
@@ -403,10 +470,12 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
             </button>
           </div>
         </div>
+
         <div style={{ marginTop: 8 }}>
           {preview.length === 0 && (
             <div style={{ color: "#666" }}>No preview generated yet.</div>
           )}
+
           {preview.map((m) => {
             const a0 =
               playersMap[m.players?.[0]]?.name || m.players?.[0] || "—";
@@ -416,20 +485,14 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
               playersMap[m.players?.[2]]?.name || m.players?.[2] || "—";
             const b1 =
               playersMap[m.players?.[3]]?.name || m.players?.[3] || "—";
+
             return (
               <div
                 key={m.match_index}
                 className="match-card"
                 style={{ padding: 10, marginTop: 8 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    width: "100%",
-                  }}
-                >
+                <div className="match-row">
                   <div
                     style={{
                       width: 48,
@@ -441,41 +504,31 @@ export default function FixedPairsSchedulePage({ navigateBack }) {
                       alignItems: "center",
                       justifyContent: "center",
                       fontWeight: 800,
+                      flex: "0 0 auto",
                     }}
                   >
                     #{m.match_index}
                   </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 10,
-                      alignItems: "center",
-                      flex: 1,
-                      minWidth: 0,
-                    }}
-                  >
-                    <div style={{ minWidth: 140 }}>
-                      <div style={{ fontWeight: 700 }}>
+
+                  <div className="teams-area" style={{ minWidth: 0 }}>
+                    <div className="team" style={{ minWidth: 0 }}>
+                      <div className="names">
                         {a0} &nbsp; / &nbsp; {a1}
                       </div>
                       <div style={{ fontSize: 12, color: "#666" }}>Team A</div>
                     </div>
-                    <div style={{ color: "#9ca3af", fontWeight: 700 }}>vs</div>
-                    <div style={{ minWidth: 140 }}>
-                      <div style={{ fontWeight: 700 }}>
+
+                    <div className="vs">vs</div>
+
+                    <div className="team" style={{ minWidth: 0 }}>
+                      <div className="names">
                         {b0} &nbsp; / &nbsp; {b1}
                       </div>
                       <div style={{ fontSize: 12, color: "#666" }}>Team B</div>
                     </div>
                   </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "center",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
+
+                  <div className="meta">
                     <div className="court-pill">Court {m.court}</div>
                     <div className="badge">Round {m.round}</div>
                   </div>
