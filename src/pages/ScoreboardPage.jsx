@@ -23,14 +23,13 @@ export default function ScoreboardPage() {
         row.name ??
         JSON.stringify(row),
       name: row.name ?? row.player_name ?? row.player ?? "Unknown",
-      matches: Number(row.matches ?? row.total_matches ?? row.match_count ?? 0),
-      wins: Number(row.wins ?? row.total_wins ?? 0),
-      // points intentionally preserved in row shape if present (we just don't display it)
-      points: Number(row.total_points ?? row.points_on_date ?? row.points ?? 0),
+      matches: Number(row.matches ?? row.total_matches ?? 0),
+      wins: Number(row.wins ?? 0),
+      points: Number(row.total_points ?? row.points_on_date ?? 0),
+      win_pct: Number(row.win_pct ?? 0),
     };
   }
 
-  // load overall scoreboard
   const loadOverall = useCallback(async () => {
     setLoadingOverall(true);
     setError(null);
@@ -47,7 +46,6 @@ export default function ScoreboardPage() {
     }
   }, []);
 
-  // load scoreboard for a specific date
   const loadByDate = useCallback(
     async (d = date) => {
       if (!d) {
@@ -71,7 +69,6 @@ export default function ScoreboardPage() {
     [date]
   );
 
-  // initial load and refresh on "scores-changed"
   useEffect(() => {
     loadOverall();
     if (date) loadByDate(date);
@@ -96,16 +93,13 @@ export default function ScoreboardPage() {
     setByDate([]);
   }
 
-  /* ---------- Table component (desktop & wide screens) ---------- */
+  /* ---------- Table (desktop) ---------- */
   function ScoreTable({ rows }) {
     return (
       <div className="table-wrap" style={{ width: "100%", overflowX: "auto" }}>
-        <table
-          className="paired-table"
-          style={{ width: "100%", borderCollapse: "collapse" }}
-        >
+        <table className="paired-table" style={{ width: "100%" }}>
           <thead>
-            <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
+            <tr style={{ borderBottom: "1px solid #eee" }}>
               <th style={{ padding: 8, width: 60 }}>No</th>
               <th style={{ padding: 8 }}>Player</th>
               <th style={{ padding: 8, textAlign: "center", width: 90 }}>
@@ -114,20 +108,21 @@ export default function ScoreboardPage() {
               <th style={{ padding: 8, textAlign: "center", width: 90 }}>
                 Wins
               </th>
-              {/* Points column intentionally hidden */}
+              <th style={{ padding: 8, textAlign: "center", width: 90 }}>
+                Win %
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => (
-              <tr
-                key={r.id ?? idx}
-                style={{ borderBottom: "1px solid #fafafa" }}
-              >
+              <tr key={r.id ?? idx}>
                 <td style={{ padding: 8 }}>{idx + 1}</td>
                 <td style={{ padding: 8 }}>{r.name}</td>
                 <td style={{ padding: 8, textAlign: "center" }}>{r.matches}</td>
                 <td style={{ padding: 8, textAlign: "center" }}>{r.wins}</td>
-                {/* Points cell removed */}
+                <td style={{ padding: 8, textAlign: "center" }}>
+                  {r.win_pct.toFixed(2)}%
+                </td>
               </tr>
             ))}
           </tbody>
@@ -136,7 +131,7 @@ export default function ScoreboardPage() {
     );
   }
 
-  /* ---------- Mobile stacked cards component (small screens) ---------- */
+  /* ---------- Mobile cards ---------- */
   function ScoreCardRows({ rows }) {
     return (
       <div>
@@ -167,6 +162,9 @@ export default function ScoreboardPage() {
                 <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
                   Wins: {r.wins}
                 </div>
+                <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                  Win %: {r.win_pct.toFixed(2)}%
+                </div>
               </div>
             </div>
           </div>
@@ -179,29 +177,18 @@ export default function ScoreboardPage() {
     <div className="container" style={{ padding: 12 }}>
       {/* Date filter */}
       <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-        }}
+        style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
       >
         <h3 style={{ margin: 0 }}>Scoreboard</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8 }}>
           <label style={{ fontSize: 13, color: "#666" }}>Date</label>
-          <input
-            className="date-input"
-            type="date"
-            value={date}
-            onChange={onDateChange}
-            aria-label="Filter scores by date"
-          />
+          <input type="date" value={date} onChange={onDateChange} />
           <button
             className="btn"
             onClick={() => loadByDate(date)}
-            disabled={!date || loadingDate}
+            disabled={!date}
           >
-            {loadingDate ? "Loading…" : "Show"}
+            Show
           </button>
           <button
             className="btn secondary"
@@ -220,29 +207,23 @@ export default function ScoreboardPage() {
       )}
 
       <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-        {/* Overall scoreboard */}
         <div className="card">
-          <h4 style={{ margin: "0 0 8px" }}>Overall (all time)</h4>
-          {loadingOverall && <div>Loading overall scores…</div>}
+          <h4>Overall (all time)</h4>
+          {loadingOverall && <div>Loading…</div>}
           {!loadingOverall && overall.length === 0 && <div>No scores yet.</div>}
           {!loadingOverall && overall.length > 0 && (
             <>
-              {/* Desktop table (visible on wide screens) */}
               <ScoreTable rows={overall} />
-              {/* Mobile stacked cards (visible on small screens via CSS) */}
               <ScoreCardRows rows={overall} />
             </>
           )}
         </div>
 
-        {/* Per-date scoreboard */}
         <div className="card">
-          <h4 style={{ margin: "0 0 8px" }}>
-            {date ? `Scores for ${date}` : "Scores for selected date"}
-          </h4>
-          {date && loadingDate && <div>Loading date scores…</div>}
+          <h4>{date ? `Scores for ${date}` : "Scores for selected date"}</h4>
+          {date && loadingDate && <div>Loading…</div>}
           {date && !loadingDate && byDate.length === 0 && (
-            <div>No recorded scores found for {date}.</div>
+            <div>No recorded scores found.</div>
           )}
           {date && !loadingDate && byDate.length > 0 && (
             <>
@@ -252,7 +233,7 @@ export default function ScoreboardPage() {
           )}
           {!date && (
             <div style={{ color: "#666" }}>
-              No date selected. Choose a date above to see that day's scores.
+              Choose a date above to see scores.
             </div>
           )}
         </div>

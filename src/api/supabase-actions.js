@@ -126,7 +126,9 @@ export async function undoWinner(matchId) {
 }
 
 export async function fetchPairingHistoryMap() {
-  const { data, error } = await supabase.from("pairing_history").select("*");
+  const { data, error } = await supabase
+    .from("pairing_history_view")
+    .select("*");
   if (error) throw error;
   const map = new Map();
   data.forEach((r) => map.set(`${r.player_a}|${r.player_b}`, r.pair_count));
@@ -134,7 +136,9 @@ export async function fetchPairingHistoryMap() {
 }
 
 export async function fetchOpponentHistoryMap() {
-  const { data, error } = await supabase.from("opponent_history").select("*");
+  const { data, error } = await supabase
+    .from("opponent_history_view")
+    .select("*");
   if (error) throw error;
   const map = new Map();
   data.forEach((r) => map.set(`${r.player_a}|${r.player_b}`, r.opp_count));

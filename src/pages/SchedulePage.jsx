@@ -6,6 +6,7 @@ import {
   fetchPlayers,
   fetchPairingHistoryMap,
   fetchOpponentHistoryMap,
+  fetchPlayerTotalsOverall,
   saveScheduleToDb,
   fetchMatchesForDate,
   deleteScheduleForDate,
@@ -31,6 +32,7 @@ export default function SchedulePage() {
   const [savedMatches, setSavedMatches] = useState([]);
   const [pairingMap, setPairingMap] = useState(new Map());
   const [opponentMap, setOpponentMap] = useState(new Map());
+  const [ratingsMap, setRatingsMap] = useState(new Map());
   const [loadingSave, setLoadingSave] = useState(false);
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -78,6 +80,24 @@ export default function SchedulePage() {
     }
   }, []);
 
+  // Load ratings (effective_rating = max(50, win_pct))
+  const loadRatings = useCallback(async () => {
+    try {
+      const { data, error } = await fetchPlayerTotalsOverall();
+      if (error) throw error;
+
+      const map = new Map();
+      (data || []).forEach((r) => {
+        const raw = Number(r.win_pct ?? 0);
+        map.set(r.id, Math.max(50, raw));
+      });
+
+      setRatingsMap(map);
+    } catch (err) {
+      console.error("loadRatings error", err);
+    }
+  }, []);
+
   // Load saved matches for date
   const loadSavedMatches = useCallback(async () => {
     try {
@@ -96,8 +116,9 @@ export default function SchedulePage() {
   useEffect(() => {
     loadPlayers();
     loadHistory();
+    loadRatings();
     loadSavedMatches();
-  }, [loadPlayers, loadHistory, loadSavedMatches]);
+  }, [loadPlayers, loadHistory, loadSavedMatches, loadRatings]);
 
   // persist date to localStorage
   useEffect(() => {
@@ -160,6 +181,7 @@ export default function SchedulePage() {
         matchesPerCourt,
         pairingHistory: pairingMap,
         opponentHistory: opponentMap,
+        ratings: ratingsMap,
         date,
       });
       setPreview(schedule);
