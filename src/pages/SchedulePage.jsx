@@ -357,6 +357,7 @@ export default function SchedulePage() {
                 }}
               >
                 <button
+                  disabled
                   className="btn generate"
                   onClick={handleGenerateConfirm}
                 >
@@ -364,6 +365,7 @@ export default function SchedulePage() {
                 </button>
 
                 <button
+                  disabled
                   className="btn secondary"
                   onClick={handleSaveConfirm}
                   disabled={loadingSave || preview.length === 0}
