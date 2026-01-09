@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   fetchPlayerTotalsOverall,
   fetchPlayerTotalsForDate,
+  fetchPlayerTotalsForPeriod,
 } from "../api/supabase-actions";
 
 export default function ScoreboardPage() {
@@ -12,6 +13,7 @@ export default function ScoreboardPage() {
   const [loadingOverall, setLoadingOverall] = useState(false);
   const [loadingDate, setLoadingDate] = useState(false);
   const [error, setError] = useState(null);
+  const [period, setPeriod] = useState("overall");
 
   // Normalizer: bring remote row into consistent shape
   function normalizeRow(row) {
@@ -30,21 +32,21 @@ export default function ScoreboardPage() {
     };
   }
 
-  const loadOverall = useCallback(async () => {
+  const loadPeriodTotals = useCallback(async () => {
     setLoadingOverall(true);
     setError(null);
     try {
-      const { data, error } = await fetchPlayerTotalsOverall();
+      const { data, error } = await fetchPlayerTotalsForPeriod(period);
       if (error) throw error;
       setOverall((data || []).map(normalizeRow));
     } catch (err) {
-      console.error("loadOverall error", err);
+      console.error("loadPeriodTotals error", err);
       setError(err);
       setOverall([]);
     } finally {
       setLoadingOverall(false);
     }
-  }, []);
+  }, [period]);
 
   const loadByDate = useCallback(
     async (d = date) => {
@@ -70,16 +72,16 @@ export default function ScoreboardPage() {
   );
 
   useEffect(() => {
-    loadOverall();
+    loadPeriodTotals();
     if (date) loadByDate(date);
 
     const onScoresChanged = () => {
-      loadOverall();
+      loadPeriodTotals();
       if (date) loadByDate(date);
     };
     window.addEventListener("scores-changed", onScoresChanged);
     return () => window.removeEventListener("scores-changed", onScoresChanged);
-  }, [loadOverall, loadByDate, date]);
+  }, [loadPeriodTotals, loadByDate, date]);
 
   function onDateChange(e) {
     const val = e.target.value;
@@ -91,6 +93,7 @@ export default function ScoreboardPage() {
   function clearDate() {
     setDate("");
     setByDate([]);
+    setPeriod("overall");
   }
 
   /* ---------- Table (desktop) ---------- */
@@ -180,9 +183,30 @@ export default function ScoreboardPage() {
         style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
       >
         <h3 style={{ margin: 0 }}>Scoreboard</h3>
-        <div style={{ display: "flex", gap: 8 }}>
-          <label style={{ fontSize: 13, color: "#666" }}>Date</label>
-          <input type="date" value={date} onChange={onDateChange} />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-end",
+            gap: 12,
+          }}
+        >
+          {/* Period */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 12, color: "#666" }}>Period</label>
+            <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+              <option value="overall">Overall</option>
+              <option value="2025">2025</option>
+              <option value="2026">2026</option>
+            </select>
+          </div>
+
+          {/* Date */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 12, color: "#666" }}>Date</label>
+            <input type="date" value={date} onChange={onDateChange} />
+          </div>
+
+          {/* Actions */}
           <button
             className="btn"
             onClick={() => loadByDate(date)}
@@ -190,10 +214,11 @@ export default function ScoreboardPage() {
           >
             Show
           </button>
+
           <button
             className="btn secondary"
             onClick={clearDate}
-            disabled={!date}
+            disabled={!date && period === "overall"}
           >
             Clear
           </button>
@@ -208,7 +233,11 @@ export default function ScoreboardPage() {
 
       <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
         <div className="card">
-          <h4>Overall (all time)</h4>
+          <h4>
+            {period === "overall"
+              ? "Overall (all time)"
+              : `Overall – ${period}`}
+          </h4>
           {loadingOverall && <div>Loading…</div>}
           {!loadingOverall && overall.length === 0 && <div>No scores yet.</div>}
           {!loadingOverall && overall.length > 0 && (

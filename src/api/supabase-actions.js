@@ -206,6 +206,17 @@ export async function fetchPlayerTotalsOverall() {
   return { data, error };
 }
 
+export async function fetchPlayerTotalsForPeriod(period) {
+  // period: "overall" | 2025 | 2026
+  const year = period === "overall" || !period ? null : Number(period);
+
+  const { data, error } = await supabase.rpc("player_totals_for_period", {
+    p_year: year,
+  });
+
+  return { data, error };
+}
+
 export async function deleteScheduleForDate(dateStr) {
   // 1) fetch match ids for date
   const { data: matches, error: fetchErr } = await supabase
