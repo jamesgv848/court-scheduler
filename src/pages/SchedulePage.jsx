@@ -163,6 +163,10 @@ export default function SchedulePage() {
   //
   // Actions triggered after user confirms in modal
   //
+
+  async function handleManualRefresh() {
+    await loadSavedMatches();
+  }
   async function _doGenerate() {
     // parse inputs
     const courts = parsePositiveInt(courtsInput, 1);
@@ -229,7 +233,7 @@ export default function SchedulePage() {
       await loadSavedMatches();
       setPreview([]);
       await loadHistory();
-      window.dispatchEvent(new Event("scores-changed"));
+      // window.dispatchEvent(new Event("scores-changed"));
       alert(
         `Cleared schedule for ${date}. Removed ${data?.length ?? 0} matches.`
       );
@@ -360,6 +364,7 @@ export default function SchedulePage() {
                   disabled
                   className="btn generate"
                   onClick={handleGenerateConfirm}
+                  style={{ display: "none" }}
                 >
                   Generate
                 </button>
@@ -367,6 +372,7 @@ export default function SchedulePage() {
                 <button
                   disabled
                   className="btn secondary"
+                  style={{ display: "none" }}
                   onClick={handleSaveConfirm}
                   disabled={loadingSave || preview.length === 0}
                 >
@@ -378,7 +384,14 @@ export default function SchedulePage() {
                   onClick={handleClearConfirm}
                   disabled={clearing}
                 >
-                  {clearing ? "Clearing..." : "Clear"}
+                  {clearing ? "Clearing..." : "Clear Schedule"}
+                </button>
+                <button
+                  className="btn secondary"
+                  onClick={handleManualRefresh}
+                  disabled={loadingMatches}
+                >
+                  {loadingMatches ? "Refreshing..." : "Refresh"}
                 </button>
               </div>
             </div>

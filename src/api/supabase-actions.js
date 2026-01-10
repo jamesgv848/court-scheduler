@@ -73,7 +73,11 @@ export async function fetchMatchesForDate(dateStr) {
   return { data, error };
 }**/
 
-export async function recordTeamWinner(matchId, winnerPlayerIds) {
+export async function recordTeamWinner(
+  matchId,
+  winnerPlayerIds,
+  scoreText = null
+) {
   if (!matchId) {
     return { data: null, error: new Error("matchId is required") };
   }
@@ -94,6 +98,7 @@ export async function recordTeamWinner(matchId, winnerPlayerIds) {
       {
         p_match_id: matchId,
         p_winner_ids: winnerPlayerIds,
+        p_score_text: scoreText,
       }
     );
 

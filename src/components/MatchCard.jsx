@@ -20,6 +20,7 @@ import {
  */
 export default function MatchCard({ match, playersMap = {}, onChange }) {
   const [busy, setBusy] = useState(false);
+  const [scoreInput, setScoreInput] = useState("");
   const [confirmState, setConfirmState] = useState({
     open: false,
     type: null,
@@ -51,22 +52,43 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
   );
 
   function openConfirmForTeam(teamPlayers) {
+    //setConfirmState({ open: true, type: "teamRecord", payload: teamPlayers });
+    setScoreInput("21-");
     setConfirmState({ open: true, type: "teamRecord", payload: teamPlayers });
   }
   function openConfirmUndo() {
+    setScoreInput("");
     setConfirmState({ open: true, type: "undo", payload: null });
   }
   function openConfirmDelete() {
+    setScoreInput("");
     setConfirmState({ open: true, type: "delete", payload: null });
   }
 
   async function doRecordTeamWin(teamPlayers) {
     setConfirmState({ open: false, type: null, payload: null });
     if (!match?.id) return alert("Match ID missing");
+
+    // normalize score: treat "21-" as empty
+    const normalizedScore =
+      scoreInput && scoreInput.trim() === "21-" ? "" : scoreInput.trim();
+
+    if (normalizedScore) {
+      const err = validateScore(normalizedScore);
+      if (err) {
+        alert(err);
+        return;
+      }
+    }
+
     setBusy(true);
     try {
-      const res = await apiRecordTeamWinner(match.id, teamPlayers);
-      console.log("recordTeamWinner result:", res);
+      const res = await apiRecordTeamWinner(
+        match.id,
+        teamPlayers,
+        normalizedScore || null
+      );
+      //console.log("recordTeamWinner result:", res);
       if (res.error) throw res.error;
       onChange && onChange();
       window.dispatchEvent(new Event("scores-changed"));
@@ -75,6 +97,7 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
       alert("Failed to record winner: " + (err.message || JSON.stringify(err)));
     } finally {
       setBusy(false);
+      setScoreInput("");
     }
   }
 
@@ -155,6 +178,37 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     );
   }
 
+  const SCORE_REGEX = /^\d{1,2}-\d{1,2}$/;
+
+  function validateScore(score) {
+    if (!SCORE_REGEX.test(score)) return "Enter score like 21-18 or 24-22";
+
+    const [w, l] = score.split("-").map(Number);
+
+    if (w <= l) return "Winning score must be higher than losing score";
+    if (w < 21) return "Winning score must be at least 21";
+    if (w > 40) return "Winning score cannot exceed 40";
+
+    return null;
+  }
+
+  function handleScoreChange(e) {
+    let v = e.target.value.replace(/[^\d-]/g, "");
+
+    // auto-insert '-' after 2 digits (only once)
+    if (v.length === 2 && !v.includes("-")) {
+      v = v + "-";
+    }
+
+    // prevent multiple '-'
+    const parts = v.split("-");
+    if (parts.length > 2) {
+      v = parts[0] + "-" + parts[1];
+    }
+
+    setScoreInput(v);
+  }
+
   // row class includes .match-completed for stronger border if completed
   const rowClass = `match-card card compact-match ${
     hasWinner ? "match-completed" : ""
@@ -183,6 +237,19 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
           </div>
           <TeamBlock ids={teamB} label="B" emphasized={teamBIsWinner} />
         </div>
+
+        {match.score_text && (
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#374151",
+            }}
+          >
+            Score: {match.score_text}
+          </div>
+        )}
       </div>
 
       {/* right: actions */}
@@ -246,17 +313,40 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
             : "Confirm winner"
         }
         message={
-          confirmState.type === "undo"
-            ? "This will remove the recorded winner and subtract awarded points for this match. This cannot be undone."
-            : confirmState.type === "delete"
-            ? "This will permanently remove this match (and any associated scores). This action cannot be undone."
-            : confirmState.type === "teamRecord"
-            ? `Mark ${
-                confirmState.payload
-                  ? confirmState.payload.map(nameOf).join(" & ")
-                  : ""
-              } as winner for match #${match.match_index}?`
-            : ""
+          confirmState.type === "undo" ? (
+            "This will remove the recorded winner and subtract awarded points for this match. This cannot be undone."
+          ) : confirmState.type === "delete" ? (
+            "This will permanently remove this match (and any associated scores). This action cannot be undone."
+          ) : confirmState.type === "teamRecord" ? (
+            <div>
+              <div style={{ marginBottom: 8 }}>
+                Mark{" "}
+                <strong>
+                  {confirmState.payload
+                    ? confirmState.payload.map(nameOf).join(" & ")
+                    : ""}
+                </strong>{" "}
+                as winner for match #{match.match_index}?
+              </div>
+
+              <input
+                type="text"
+                placeholder="21-18"
+                value={scoreInput}
+                onChange={handleScoreChange}
+                maxLength={5}
+                autoFocus
+                inputMode="numeric"
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  fontSize: 14,
+                }}
+              />
+            </div>
+          ) : (
+            ""
+          )
         }
         onCancel={() =>
           setConfirmState({ open: false, type: null, payload: null })
