@@ -516,3 +516,7 @@ export async function ensureScoresForMatch(matchId) {
     return { ok: false, error: err };
   }
 }
+
+export async function exportFullMatchAnalysis() {
+  return await supabase.rpc("export_full_match_analysis");
+}

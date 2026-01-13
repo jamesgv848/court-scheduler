@@ -1,9 +1,11 @@
 // src/pages/ScoreboardPage.jsx
 import React, { useEffect, useState, useCallback } from "react";
+import "./ScoreboardPage.css";
 import {
   fetchPlayerTotalsOverall,
   fetchPlayerTotalsForDate,
   fetchPlayerTotalsForPeriod,
+  exportFullMatchAnalysis,
 } from "../api/supabase-actions";
 
 export default function ScoreboardPage() {
@@ -30,6 +32,33 @@ export default function ScoreboardPage() {
       points: Number(row.total_points ?? row.points_on_date ?? 0),
       win_pct: Number(row.win_pct ?? 0),
     };
+  }
+
+  async function exportScores() {
+    try {
+      const { data, error } = await exportFullMatchAnalysis();
+      if (error) throw error;
+
+      const content =
+        "### GPT ANALYSIS DATA (RAW EXPORT)\n" + JSON.stringify(data);
+
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gpt-match-analysis-${new Date()
+        .toISOString()
+        .slice(0, 10)}.txt`;
+
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed", err);
+      alert("Failed to export analysis data.");
+    }
   }
 
   const loadPeriodTotals = useCallback(async () => {
@@ -179,20 +208,29 @@ export default function ScoreboardPage() {
   return (
     <div className="container" style={{ padding: 12 }}>
       {/* Date filter */}
-      <div
-        style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
-      >
-        <h3 style={{ margin: 0 }}>Scoreboard</h3>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            gap: 12,
-          }}
-        >
+      {/* Header */}
+      <div className="scoreboard-header">
+        {/* Top row */}
+        <div className="scoreboard-header-top">
+          <h3 className="scoreboard-title">Scoreboard</h3>
+
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              exportScores();
+            }}
+            className="scoreboard-export"
+          >
+            Export scores (GPT)
+          </a>
+        </div>
+
+        {/* Filters row */}
+        <div className="scoreboard-header-filters">
           {/* Period */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ fontSize: 12, color: "#666" }}>Period</label>
+          <div className="filter-group">
+            <label>Period</label>
             <select value={period} onChange={(e) => setPeriod(e.target.value)}>
               <option value="overall">Overall</option>
               <option value="2025">2025</option>
@@ -201,12 +239,11 @@ export default function ScoreboardPage() {
           </div>
 
           {/* Date */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ fontSize: 12, color: "#666" }}>Date</label>
+          <div className="filter-group">
+            <label>Date</label>
             <input type="date" value={date} onChange={onDateChange} />
           </div>
 
-          {/* Actions */}
           <button
             className="btn"
             onClick={() => loadByDate(date)}
