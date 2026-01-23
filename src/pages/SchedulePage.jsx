@@ -1,7 +1,7 @@
 // src/pages/SchedulePage.jsx
 import React, { useEffect, useState, useCallback } from "react";
 import { supabase } from "../supabaseClient";
-import { generateSchedule } from "../utils/scheduler";
+import { generateSchedule } from "../utils/scheduler.simple";
 import {
   fetchPlayers,
   fetchPairingHistoryMap,
@@ -47,7 +47,7 @@ export default function SchedulePage() {
 
   // playersMap for quick name lookup
   const playersMap = Object.fromEntries(
-    (players || []).map((p) => [p.id, p.name])
+    (players || []).map((p) => [p.id, p.name]),
   );
 
   // Helpers to parse counts (allow empty while typing)
@@ -140,7 +140,7 @@ export default function SchedulePage() {
         },
         () => {
           loadSavedMatches();
-        }
+        },
       )
       .subscribe();
 
@@ -156,7 +156,7 @@ export default function SchedulePage() {
   // toggle available selection
   function toggleAvailable(id) {
     setAvailable((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
 
@@ -211,6 +211,7 @@ export default function SchedulePage() {
       if (error) throw error;
       await loadSavedMatches();
       setPreview([]);
+      setAvailable([]);
       await loadHistory();
       alert("Schedule saved.");
     } catch (err) {
@@ -232,10 +233,11 @@ export default function SchedulePage() {
       if (error) throw error;
       await loadSavedMatches();
       setPreview([]);
+      setAvailable([]);
       await loadHistory();
       // window.dispatchEvent(new Event("scores-changed"));
       alert(
-        `Cleared schedule for ${date}. Removed ${data?.length ?? 0} matches.`
+        `Cleared schedule for ${date}. Removed ${data?.length ?? 0} matches.`,
       );
     } catch (err) {
       console.error("onClearSchedule error", err);
@@ -361,18 +363,18 @@ export default function SchedulePage() {
                 }}
               >
                 <button
-                  disabled
+                  // disabled
                   className="btn generate"
                   onClick={handleGenerateConfirm}
-                  style={{ display: "none" }}
+                  //style={{ display: "none" }}
                 >
                   Generate
                 </button>
 
                 <button
-                  disabled
+                  //disabled
                   className="btn secondary"
-                  style={{ display: "none" }}
+                  // style={{ display: "none" }}
                   onClick={handleSaveConfirm}
                   disabled={loadingSave || preview.length === 0}
                 >
@@ -495,19 +497,19 @@ export default function SchedulePage() {
           modalState.type === "clear"
             ? "Clear schedule?"
             : modalState.type === "save"
-            ? "Save schedule?"
-            : modalState.type === "generate"
-            ? "Generate schedule?"
-            : "Confirm"
+              ? "Save schedule?"
+              : modalState.type === "generate"
+                ? "Generate schedule?"
+                : "Confirm"
         }
         message={
           modalState.type === "clear"
             ? `This will remove all matches and recorded scores for ${date}. This cannot be undone.`
             : modalState.type === "save"
-            ? `Save the generated schedule for ${date}? This will persist matches and allow anyone to record winners.`
-            : modalState.type === "generate"
-            ? `Generate a preview schedule now? This will overwrite the preview shown (does not save data until you press Save).`
-            : ""
+              ? `Save the generated schedule for ${date}? This will persist matches and allow anyone to record winners.`
+              : modalState.type === "generate"
+                ? `Generate a preview schedule now? This will overwrite the preview shown (does not save data until you press Save).`
+                : ""
         }
         onCancel={() =>
           setModalState({
@@ -522,8 +524,8 @@ export default function SchedulePage() {
           modalState.type === "clear"
             ? "Clear"
             : modalState.type === "save"
-            ? "Save"
-            : "Generate"
+              ? "Save"
+              : "Generate"
         }
         cancelLabel="Cancel"
         loading={modalState.loading}
