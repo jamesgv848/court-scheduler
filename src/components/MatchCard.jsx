@@ -1,11 +1,13 @@
 // src/components/MatchCard.jsx
 import React, { useState, useMemo } from "react";
+
 import PropTypes from "prop-types";
 import ConfirmModal from "./ConfirmModal";
 import {
   recordTeamWinner as apiRecordTeamWinner,
   undoWinner as apiUndoWinner,
   deleteMatchById as apiDeleteMatchById,
+  updateMatchPlayers as apiUpdateMatchPlayers, // NEW
 } from "../api/supabase-actions";
 
 /**
@@ -16,14 +18,20 @@ import {
  *  - After recording, the winning team block turns colored and shows a small trophy icon.
  *  - Clear button (undo) removes winner & points.
  *  - Completed matches get a stronger border to indicate finality.
- *  - New: Remove (delete) button to delete a single match (only shown when no winner).
+ *  - Remove (delete) button only when no winner.
+ *  - Edit players only when no winner (no extra confirm).
  */
 export default function MatchCard({ match, playersMap = {}, onChange }) {
   const [busy, setBusy] = useState(false);
   const [scoreInput, setScoreInput] = useState("");
+
+  // NEW: edit players state
+  const [editPlayers, setEditPlayers] = useState([]);
+  const [editOpen, setEditOpen] = useState(false);
+
   const [confirmState, setConfirmState] = useState({
     open: false,
-    type: null,
+    type: null, // teamRecord | undo | delete
     payload: null,
   });
 
@@ -33,43 +41,47 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
   const teamB = playersArr.slice(2, 4);
   const nameOf = (id) => (id ? playersMap[id] || id : "");
 
-  // normalize winner to array form (we support either array of uuids or single uuid)
+  // normalize winner to array form
   const winnerArr = Array.isArray(match.winner)
     ? match.winner
     : match.winner
-    ? [match.winner]
-    : [];
+      ? [match.winner]
+      : [];
   const hasWinner = winnerArr.length > 0;
 
-  // whether team contains any winner id
   const teamAIsWinner = hasWinner && teamA.some((id) => winnerArr.includes(id));
   const teamBIsWinner = hasWinner && teamB.some((id) => winnerArr.includes(id));
 
-  // compact display label for winner (not shown as text in row — team visuals indicate winner)
   const winnerLabel = useMemo(
     () => (hasWinner ? winnerArr.map(nameOf).join(" & ") : ""),
-    [winnerArr, playersMap]
+    [winnerArr, playersMap],
   );
 
   function openConfirmForTeam(teamPlayers) {
-    //setConfirmState({ open: true, type: "teamRecord", payload: teamPlayers });
     setScoreInput("21-");
     setConfirmState({ open: true, type: "teamRecord", payload: teamPlayers });
   }
+
   function openConfirmUndo() {
     setScoreInput("");
     setConfirmState({ open: true, type: "undo", payload: null });
   }
+
   function openConfirmDelete() {
     setScoreInput("");
     setConfirmState({ open: true, type: "delete", payload: null });
+  }
+
+  // NEW: open edit players directly (no confirm)
+  function openEditPlayers() {
+    setEditPlayers(playersArr);
+    setEditOpen(true);
   }
 
   async function doRecordTeamWin(teamPlayers) {
     setConfirmState({ open: false, type: null, payload: null });
     if (!match?.id) return alert("Match ID missing");
 
-    // normalize score: treat "21-" as empty
     const normalizedScore =
       scoreInput && scoreInput.trim() === "21-" ? "" : scoreInput.trim();
 
@@ -86,9 +98,8 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
       const res = await apiRecordTeamWinner(
         match.id,
         teamPlayers,
-        normalizedScore || null
+        normalizedScore || null,
       );
-      //console.log("recordTeamWinner result:", res);
       if (res.error) throw res.error;
       onChange && onChange();
       window.dispatchEvent(new Event("scores-changed"));
@@ -121,13 +132,11 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
   async function doDeleteMatch() {
     setConfirmState({ open: false, type: null, payload: null });
     if (!match?.id) return alert("Match ID missing");
-    // extra safety: confirm UI already prevents deleting matches with winner
     setBusy(true);
     try {
       const res = await apiDeleteMatchById(match.id);
       if (res.error) throw res.error;
       onChange && onChange();
-      // notify other pages (scoreboard, pairing stats) that scores/matches changed
       window.dispatchEvent(new Event("scores-changed"));
     } catch (err) {
       console.error("deleteMatchById error", err);
@@ -137,35 +146,51 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     }
   }
 
-  // TEAM BLOCK: clickable - shows names stacked; when emphasized, uses color background and trophy
+  // NEW: save edited players with duplicate validation
+  async function doSaveEditedPlayers() {
+    const unique = new Set(editPlayers.filter(Boolean));
+    if (unique.size !== 4) {
+      alert("Duplicate players detected. Each player must be unique.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await apiUpdateMatchPlayers(match.id, editPlayers);
+      if (res.error) throw res.error;
+      setEditOpen(false);
+      onChange && onChange();
+      window.dispatchEvent(new Event("scores-changed"));
+    } catch (err) {
+      console.error("updateMatchPlayers error", err);
+      alert("Failed to update players");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // TEAM BLOCK
   function TeamBlock({ ids = [], label = "A", emphasized = false }) {
     const [p0 = "", p1 = ""] = ids;
     const isA = label === "A";
-    const color = isA ? "#0b71d0" : "#059669"; // A: blue, B: green
+    const color = isA ? "#0b71d0" : "#059669";
     const bg = emphasized ? color : "#fff";
     const textColor = emphasized ? "#fff" : color;
 
     return (
-      // use CSS class team-block (defined in index.css) so sizing & flex behavior is consistent
       <button
         type="button"
         onClick={() => openConfirmForTeam(ids)}
         disabled={busy}
-        aria-label={`Mark team ${label} as winner`}
         className={`team-block ${emphasized ? "team-winner" : ""}`}
-        style={{
-          // keep inline fallback but main rules live in CSS
-          background: bg,
-          color: textColor,
-        }}
+        style={{ background: bg, color: textColor }}
       >
         <div
           className="team-label"
           style={{
             background: emphasized ? "rgba(255,255,255,0.06)" : "#eef2ff",
-            color: color,
+            color,
           }}
-          aria-hidden
         >
           {emphasized ? "🏆" : label}
         </div>
@@ -178,139 +203,90 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     );
   }
 
-  const SCORE_REGEX = /^\d{1,2}-\d{1,2}$/;
-
   function validateScore(score) {
-    if (!SCORE_REGEX.test(score)) return "Enter score like 21-18 or 24-22";
-
+    if (!/^\d{1,2}-\d{1,2}$/.test(score)) {
+      return "Enter score like 21-18 or 11-9";
+    }
     const [w, l] = score.split("-").map(Number);
-
     if (w <= l) return "Winning score must be higher than losing score";
-    if (w < 21) return "Winning score must be at least 21";
-    if (w > 40) return "Winning score cannot exceed 40";
-
+    if (w - l < 2) return "Winning score must be at least 2 points higher";
     return null;
   }
 
   function handleScoreChange(e) {
-    let v = e.target.value.replace(/[^\d-]/g, "");
-
-    // auto-insert '-' after 2 digits (only once)
-    if (v.length === 2 && !v.includes("-")) {
-      v = v + "-";
+    let v = e.target.value;
+    if (v === "") {
+      setScoreInput("");
+      return;
     }
-
-    // prevent multiple '-'
-    const parts = v.split("-");
-    if (parts.length > 2) {
-      v = parts[0] + "-" + parts[1];
-    }
-
+    v = v.replace(/[^\d-]/g, "");
+    if ((v.match(/-/g) || []).length > 1) return;
+    if (v.length === 2 && !v.includes("-")) v = v + "-";
     setScoreInput(v);
   }
 
-  // row class includes .match-completed for stronger border if completed
   const rowClass = `match-card card compact-match ${
     hasWinner ? "match-completed" : ""
   }`;
 
   return (
     <div className={rowClass} style={{ padding: 12, marginBottom: 10 }}>
-      {/* left: index + teams */}
-      <div className="match-left" style={{ minWidth: 0 }}>
-        <div className="match-index" aria-hidden style={{ flexShrink: 0 }}>
-          #{match.match_index}
-        </div>
+      {/* left */}
+      <div className="match-left">
+        <div className="match-index">#{match.match_index}</div>
 
-        <div
-          className="teams"
-          style={{
-            display: "flex",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="teams">
           <TeamBlock ids={teamA} label="A" emphasized={teamAIsWinner} />
-          <div style={{ fontSize: 13, color: "#9ca3af", fontWeight: 700 }}>
-            vs
-          </div>
+          <div className="vs">vs</div>
           <TeamBlock ids={teamB} label="B" emphasized={teamBIsWinner} />
         </div>
 
-        {match.score_text && (
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 13,
-              fontWeight: 600,
-              color: "#374151",
-            }}
-          >
-            Score: {match.score_text}
-          </div>
-        )}
+        {match.score_text && <div>Score: {match.score_text}</div>}
       </div>
 
-      {/* right: actions */}
-      <div className="match-right" style={{ marginLeft: 12 }}>
-        <div className="court-pill" aria-hidden style={{ flexShrink: 0 }}>
-          Court {match.court}
-        </div>
+      {/* right */}
+      <div className="match-right">
+        <div className="court-pill">Court {match.court}</div>
 
-        {hasWinner ? (
+        {!hasWinner && (
           <>
-            <div className="trophy" title={winnerLabel} aria-hidden>
+            <button className="btn btn-small" onClick={openEditPlayers}>
+              Edit Players
+            </button>
+
+            <button
+              className="btn btn-small btn-danger-outline"
+              onClick={openConfirmDelete}
+            >
+              Remove
+            </button>
+          </>
+        )}
+
+        {hasWinner && (
+          <>
+            <div className="trophy" title={winnerLabel}>
               🏆
             </div>
             <button
               className="btn btn-small btn-danger"
               onClick={openConfirmUndo}
-              disabled={busy}
             >
-              {busy ? "Working…" : "Clear"}
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              className="btn btn-small"
-              onClick={() => openConfirmForTeam(teamA)}
-              disabled={busy || teamA.length < 2}
-            >
-              {busy ? "Working…" : "A Win"}
-            </button>
-            <button
-              className="btn btn-small"
-              onClick={() => openConfirmForTeam(teamB)}
-              disabled={busy || teamB.length < 2}
-            >
-              {busy ? "Working…" : "B Win"}
-            </button>
-
-            {/* Remove (delete) button: only shown when there's no winner */}
-            <button
-              className="btn btn-small btn-danger-outline"
-              onClick={openConfirmDelete}
-              disabled={busy}
-              title="Remove this match (only allowed if no winner recorded)"
-              style={{ marginLeft: 8 }}
-            >
-              {busy ? "…" : "Remove"}
+              Clear
             </button>
           </>
         )}
       </div>
 
-      {/* Confirm modal */}
+      {/* Winner / Delete Confirm Modal (UNCHANGED) */}
       <ConfirmModal
         open={confirmState.open}
         title={
           confirmState.type === "undo"
             ? "Clear match winner?"
             : confirmState.type === "delete"
-            ? "Remove match?"
-            : "Confirm winner"
+              ? "Remove match?"
+              : "Confirm winner"
         }
         message={
           confirmState.type === "undo" ? (
@@ -337,16 +313,10 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
                 maxLength={5}
                 autoFocus
                 inputMode="numeric"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  fontSize: 14,
-                }}
+                style={{ width: "100%", padding: "6px 8px", fontSize: 14 }}
               />
             </div>
-          ) : (
-            ""
-          )
+          ) : null
         }
         onCancel={() =>
           setConfirmState({ open: false, type: null, payload: null })
@@ -361,9 +331,41 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
           confirmState.type === "undo"
             ? "Clear"
             : confirmState.type === "delete"
-            ? "Remove"
-            : "Confirm"
+              ? "Remove"
+              : "Confirm"
         }
+        cancelLabel="Cancel"
+        loading={busy}
+      />
+
+      {/* Edit Players Modal */}
+      <ConfirmModal
+        open={editOpen}
+        title="Edit players"
+        message={
+          <div style={{ display: "grid", gap: 8 }}>
+            {editPlayers.map((pid, idx) => (
+              <select
+                key={idx}
+                value={pid}
+                onChange={(e) => {
+                  const next = [...editPlayers];
+                  next[idx] = e.target.value;
+                  setEditPlayers(next);
+                }}
+              >
+                {Object.entries(playersMap).map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            ))}
+          </div>
+        }
+        onCancel={() => setEditOpen(false)}
+        onConfirm={doSaveEditedPlayers}
+        confirmLabel="Save"
         cancelLabel="Cancel"
         loading={busy}
       />

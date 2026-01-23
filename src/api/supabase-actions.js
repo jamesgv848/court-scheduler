@@ -76,7 +76,7 @@ export async function fetchMatchesForDate(dateStr) {
 export async function recordTeamWinner(
   matchId,
   winnerPlayerIds,
-  scoreText = null
+  scoreText = null,
 ) {
   if (!matchId) {
     return { data: null, error: new Error("matchId is required") };
@@ -99,13 +99,12 @@ export async function recordTeamWinner(
         p_match_id: matchId,
         p_winner_ids: winnerPlayerIds,
         p_score_text: scoreText,
-      }
+      },
     );
 
     // fetch scores after RPC so caller can inspect if points were updated
-    const { data: scores, error: scoresError } = await fetchScoresForMatch(
-      matchId
-    );
+    const { data: scores, error: scoresError } =
+      await fetchScoresForMatch(matchId);
 
     // return everything useful for diagnostics / UI update
     return { data: rpcData, error: rpcError, scores, scoresError };
@@ -191,7 +190,7 @@ export function subscribeToScores(onChange) {
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "scores" },
-      onChange
+      onChange,
     )
     .subscribe();
 }
@@ -266,7 +265,7 @@ export async function fetchPairingStatsSimple() {
 // fetch pairs that have recorded results; optional startDate/endDate are 'YYYY-MM-DD' strings or null
 export async function fetchPairingStatsRecorded(
   startDate = null,
-  endDate = null
+  endDate = null,
 ) {
   // note: parameter names must match RPC args (p_start, p_end)
   const { data, error } = await supabase.rpc("pairing_stats_recorded", {
@@ -320,7 +319,7 @@ export async function createManualMatch({
         // log but don't necessarily fail; we'll default nextIndex = 1
         console.warn(
           "createManualMatch: error reading max match_index:",
-          resp.error
+          resp.error,
         );
       } else if (resp.data && typeof resp.data.match_index === "number") {
         nextIndex = resp.data.match_index + 1;
@@ -351,7 +350,7 @@ export async function createManualMatch({
     if (insertMatchErr) {
       console.error(
         "createManualMatch: failed to insert match:",
-        insertMatchErr
+        insertMatchErr,
       );
       return { data: null, error: insertMatchErr };
     }
@@ -381,7 +380,7 @@ export async function createManualMatch({
     if (insertScoresErr) {
       console.error(
         "createManualMatch: failed to insert scores:",
-        insertScoresErr
+        insertScoresErr,
       );
       // Try best-effort cleanup of the match row to avoid dangling match with no scores.
       try {
@@ -389,7 +388,7 @@ export async function createManualMatch({
       } catch (cleanupErr) {
         console.warn(
           "createManualMatch: failed cleanup after scores error:",
-          cleanupErr
+          cleanupErr,
         );
       }
       return { data: null, error: insertScoresErr };
@@ -474,7 +473,7 @@ export async function ensureScoresForMatch(matchId) {
     if (existingErr) return { ok: false, error: existingErr };
 
     const existingIds = new Set(
-      (existingScores || []).map((r) => String(r.player_id))
+      (existingScores || []).map((r) => String(r.player_id)),
     );
     // If there are already 4 rows, assume fine (you can adjust threshold)
     if ((existingIds.size || 0) >= 4) return { ok: true, inserted: 0 };
@@ -519,4 +518,19 @@ export async function ensureScoresForMatch(matchId) {
 
 export async function exportFullMatchAnalysis() {
   return await supabase.rpc("export_full_match_analysis");
+}
+
+export async function updateMatchPlayers(matchId, playerIds) {
+  if (!matchId || !Array.isArray(playerIds) || playerIds.length !== 4) {
+    return { data: null, error: new Error("Invalid matchId or playerIds") };
+  }
+
+  const { data, error } = await supabase
+    .from("matches")
+    .update({ player_ids: playerIds })
+    .eq("id", matchId)
+    .select("*")
+    .single();
+
+  return { data, error };
 }
