@@ -24,6 +24,7 @@ import {
 export default function MatchCard({ match, playersMap = {}, onChange }) {
   const [busy, setBusy] = useState(false);
   const [scoreInput, setScoreInput] = useState("");
+  const [prevScoreInput, setPrevScoreInput] = useState("");
 
   // NEW: edit players state
   const [editPlayers, setEditPlayers] = useState([]);
@@ -82,11 +83,15 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     setConfirmState({ open: false, type: null, payload: null });
     if (!match?.id) return alert("Match ID missing");
 
-    const normalizedScore =
+    let normalizedScore =
       scoreInput && scoreInput.trim() === "21-" ? "" : scoreInput.trim();
 
+    if (normalizedScore.endsWith(",")) {
+      normalizedScore = normalizedScore.slice(0, -1);
+    }
+
     if (normalizedScore) {
-      const err = validateScore(normalizedScore);
+      const err = validateMatchScore(normalizedScore); // 🔧 UPDATED
       if (err) {
         alert(err);
         return;
@@ -203,25 +208,70 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
     );
   }
 
-  function validateScore(score) {
-    if (!/^\d{1,2}-\d{1,2}$/.test(score)) {
-      return "Enter score like 21-18 or 11-9";
+  // 🔧 UPDATED: multi-set score validation (winner-first, comma-separated)
+  function validateMatchScore(scoreText) {
+    if (!scoreText) return null;
+
+    const sets = scoreText
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (sets.length === 0) {
+      return "Invalid score format";
     }
-    const [w, l] = score.split("-").map(Number);
-    if (w <= l) return "Winning score must be higher than losing score";
-    if (w - l < 2) return "Winning score must be at least 2 points higher";
+
+    for (const set of sets) {
+      if (!/^\d{1,2}-\d{1,2}$/.test(set)) {
+        return "Each set must look like 21-18";
+      }
+
+      const [a, b] = set.split("-").map(Number);
+
+      const win = Math.max(a, b);
+      const lose = Math.min(a, b);
+
+      if (win < 21) {
+        return "Winning score must be at least 21";
+      }
+
+      if (win - lose < 2) {
+        return "Each set must be won by at least 2 points";
+      }
+    }
+
     return null;
   }
 
   function handleScoreChange(e) {
     let v = e.target.value;
+
     if (v === "") {
       setScoreInput("");
+      setPrevScoreInput("");
       return;
     }
-    v = v.replace(/[^\d-]/g, "");
-    if ((v.match(/-/g) || []).length > 1) return;
-    if (v.length === 2 && !v.includes("-")) v = v + "-";
+
+    v = v.replace(/[^\d-,]/g, "");
+
+    const isDeleting = v.length < prevScoreInput.length;
+    const parts = v.split(",");
+
+    if (parts.some((p) => (p.match(/-/g) || []).length > 1)) {
+      return;
+    }
+
+    if (!isDeleting) {
+      const last = parts[parts.length - 1];
+
+      // auto-add '-' after typing 2 digits
+      if (last.length === 2 && !last.includes("-")) {
+        parts[parts.length - 1] = last + "-";
+        v = parts.join(",");
+      }
+    }
+
+    setPrevScoreInput(v);
     setScoreInput(v);
   }
 
@@ -307,10 +357,9 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
 
               <input
                 type="text"
-                placeholder="21-18"
+                placeholder="21-18,21-15"
                 value={scoreInput}
                 onChange={handleScoreChange}
-                maxLength={5}
                 autoFocus
                 inputMode="numeric"
                 style={{ width: "100%", padding: "6px 8px", fontSize: 14 }}
