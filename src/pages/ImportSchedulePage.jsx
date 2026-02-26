@@ -1,3 +1,4 @@
+// src/pages/ImportSchedulePage.jsx
 import React, { useState, useEffect } from "react";
 import ConfirmModal from "../components/ConfirmModal";
 import {
@@ -8,13 +9,14 @@ import {
 
 export default function ImportSchedulePage() {
   const today = new Date().toISOString().slice(0, 10);
-
   const [date, setDate] = useState(today);
   const [jsonText, setJsonText] = useState("");
   const [clearFirst, setClearFirst] = useState(true);
   const [players, setPlayers] = useState([]);
   const [message, setMessage] = useState(null);
+  const [isError, setIsError] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     fetchPlayers().then(({ data }) => setPlayers(data || []));
@@ -30,114 +32,232 @@ export default function ImportSchedulePage() {
 
   function onImportClick() {
     setMessage(null);
+    setIsError(false);
     setConfirmOpen(true);
   }
 
   async function doImport() {
     setConfirmOpen(false);
-
+    setBusy(true);
+    setMessage(null);
+    setIsError(false);
     try {
       const parsed = JSON.parse(jsonText);
-      if (!Array.isArray(parsed.matches)) {
+      if (!Array.isArray(parsed.matches))
         throw new Error("JSON must contain a 'matches' array");
-      }
-
       const nameMap = buildPlayerNameMap();
-
       const schedule = parsed.matches.map((m, idx) => {
-        if (!m.round || !m.court || !m.teamA || !m.teamB) {
+        if (!m.round || !m.court || !m.teamA || !m.teamB)
           throw new Error(`Invalid match structure at index ${idx}`);
-        }
-
-        if (m.teamA.length !== 2 || m.teamB.length !== 2) {
+        if (m.teamA.length !== 2 || m.teamB.length !== 2)
           throw new Error(
-            `Each team must have exactly 2 players (match ${idx + 1})`
+            `Each team must have exactly 2 players (match ${idx + 1})`,
           );
-        }
-
         const allNames = [...m.teamA, ...m.teamB];
-
-        const playersIds = allNames.map((n) => nameMap[n.toLowerCase()]);
-
-        const unknownNames = allNames.filter((n, i) => !playersIds[i]);
-
-        if (unknownNames.length > 0) {
+        const playerIds = allNames.map((n) => nameMap[n.toLowerCase()]);
+        const unknown = allNames.filter((n, i) => !playerIds[i]);
+        if (unknown.length > 0)
           throw new Error(
-            `Unknown player(s) in match ${idx + 1}: ${unknownNames.join(", ")}`
+            `Unknown player(s) in match ${idx + 1}: ${unknown.join(", ")}`,
           );
-        }
-
-        return {
-          court: m.court,
-          round: m.round,
-          players: playersIds,
-        };
+        return { court: m.court, round: m.round, players: playerIds };
       });
-
-      if (clearFirst) {
-        await deleteScheduleForDate(date);
-      }
-
+      if (clearFirst) await deleteScheduleForDate(date);
       await saveScheduleToDb(schedule, date);
-
       setMessage(
         clearFirst
-          ? `Schedule for ${date} was cleared and ${schedule.length} matches were imported.`
-          : `${schedule.length} matches were appended to the schedule for ${date}.`
+          ? `✅ Cleared and imported ${schedule.length} matches for ${date}.`
+          : `✅ Appended ${schedule.length} matches to ${date}.`,
       );
-
       setJsonText("");
     } catch (err) {
-      setMessage(`Import failed: ${err.message}`);
+      setMessage(`❌ ${err.message}`);
+      setIsError(true);
+    } finally {
+      setBusy(false);
     }
   }
 
+  const placeholder = `{
+  "matches": [
+    { "round": 1, "court": 1, "teamA": ["Ajit","Bikram"],      "teamB": ["Chetan","Hanumant"] },
+    { "round": 1, "court": 2, "teamA": ["Krishna","Nagu"],     "teamB": ["Preetam","Sai"] },
+    { "round": 2, "court": 1, "teamA": ["Sampreet","Vijay"],   "teamB": ["Ajit","Chetan"] }
+  ]
+}`;
+
   return (
-    <div className="container" style={{ padding: 12, maxWidth: 900 }}>
-      <h3>Import Schedule</h3>
-
+    <div className="container" style={{ paddingTop: 12 }}>
       <div className="card">
-        <label className="form-label">Date</label>
-        <input
-          className="date-input"
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
-
-        <label style={{ display: "block", marginTop: 12 }}>
-          <input
-            type="checkbox"
-            checked={clearFirst}
-            onChange={(e) => setClearFirst(e.target.checked)}
-          />{" "}
-          Clear existing schedule for this date
-        </label>
-
-        <label className="form-label" style={{ marginTop: 12 }}>
-          Schedule JSON
-        </label>
-        <textarea
-          rows={14}
-          value={jsonText}
-          onChange={(e) => setJsonText(e.target.value)}
-          placeholder='{"matches":[{"round":1,"court":1,"teamA":["Player1","Player2"],"teamB":["Player3","Player4"]},{"round":1,"court":2,"teamA":["Player5","Player6"],"teamB":["Player7","Player8"]}]}'
-          style={{
-            width: "100%",
-            fontFamily: "monospace",
-            whiteSpace: "pre-wrap",
-          }}
-        />
-
-        <div style={{ marginTop: 12 }}>
-          <button className="btn generate" onClick={onImportClick}>
-            Import Schedule
-          </button>
+        <div className="card-header">
+          <span className="card-title">📥 Import Schedule</span>
         </div>
+        <div className="card-body">
+          {/* Date */}
+          <div style={{ marginBottom: 14 }}>
+            <label className="form-label">Date</label>
+            <input
+              className="date-input"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              style={{ width: "100%" }}
+            />
+          </div>
 
-        {message && (
-          <div style={{ marginTop: 12, fontWeight: 600 }}>{message}</div>
-        )}
+          {/* Clear toggle */}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              marginBottom: 14,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={clearFirst}
+              onChange={(e) => setClearFirst(e.target.checked)}
+              style={{ width: 16, height: 16 }}
+            />
+            <span style={{ fontSize: 13, color: "var(--text)" }}>
+              Clear existing schedule for this date before importing
+            </span>
+          </label>
+
+          {/* JSON input */}
+          <label className="form-label">Schedule JSON (from ChatGPT)</label>
+          <textarea
+            rows={14}
+            value={jsonText}
+            onChange={(e) => setJsonText(e.target.value)}
+            placeholder={placeholder}
+            style={{
+              width: "100%",
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+              fontSize: 11,
+              lineHeight: 1.55,
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--surface2)",
+              color: "var(--text)",
+              resize: "vertical",
+              outline: "none",
+              whiteSpace: "pre",
+            }}
+          />
+
+          {/* GPT prompt hint */}
+          <details style={{ marginTop: 10 }}>
+            <summary
+              style={{
+                fontSize: 12,
+                color: "var(--primary)",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              💡 How to generate this with ChatGPT
+            </summary>
+            <div
+              style={{
+                marginTop: 8,
+                padding: 10,
+                borderRadius: 8,
+                background: "var(--surface2)",
+                border: "1px solid var(--border)",
+                fontSize: 12,
+                color: "var(--muted)",
+                lineHeight: 1.6,
+              }}
+            >
+              <strong>Prompt template:</strong>
+              <br />
+              "Create a badminton doubles schedule for these players: Ajit,
+              Bikram, Chetan, Hanumant, Krishna, Nagu, Preetam, Sai, Sampreet,
+              Vijay. Use 2 courts, 5 rounds per court. Minimise repeat pairings
+              and opponents. Output as JSON only, format:
+              {`{ "matches": [ { "round": 1, "court": 1, "teamA": ["P1","P2"], "teamB": ["P3","P4"] } ] }`}
+              "
+            </div>
+          </details>
+
+          {/* Actions */}
+          <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+            <button
+              className="btn generate"
+              onClick={onImportClick}
+              disabled={busy || !jsonText.trim()}
+            >
+              {busy ? "Importing…" : "⚡ Import Schedule"}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setJsonText("");
+                setMessage(null);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {/* Feedback message */}
+          {message && (
+            <div
+              style={{
+                marginTop: 14,
+                padding: "10px 12px",
+                borderRadius: 8,
+                background: isError
+                  ? "var(--danger-dim)"
+                  : "var(--success-dim)",
+                border: `1px solid ${isError ? "var(--danger-border)" : "var(--success-border)"}`,
+                color: isError ? "var(--danger)" : "var(--success)",
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              {message}
+            </div>
+          )}
+
+          {/* Known players */}
+          <div style={{ marginTop: 16 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--muted2)",
+                textTransform: "uppercase",
+                letterSpacing: 0.6,
+                marginBottom: 6,
+              }}
+            >
+              Known players ({players.length})
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {players.map((p) => (
+                <span
+                  key={p.id}
+                  style={{
+                    padding: "3px 9px",
+                    borderRadius: 20,
+                    background: "var(--primary-dim)",
+                    color: "var(--primary)",
+                    border: "1px solid var(--primary-border)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  {p.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       <ConfirmModal
@@ -152,6 +272,8 @@ export default function ImportSchedulePage() {
         onCancel={() => setConfirmOpen(false)}
         onConfirm={doImport}
       />
+
+      <div style={{ height: 16 }} />
     </div>
   );
 }

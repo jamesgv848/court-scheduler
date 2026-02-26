@@ -3,47 +3,29 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { fetchPlayers, createManualMatch } from "../api/supabase-actions";
 import ConfirmModal from "../components/ConfirmModal";
 
-/**
- * RegisterMatchPage
- *
- * Simple form to register manual/ad-hoc match:
- * - Date (YYYY-MM-DD)
- * - Court (optional, defaults to 1)
- * - Team A: player1 + player2
- * - Team B: player1 + player2
- *
- * Dropdowns will prevent selecting the same player in more than one slot.
- */
 export default function RegisterMatchPage() {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
-  const [court, setCourt] = useState("1"); // default shown as 1 to avoid NOT NULL DB constraint
+  const [court, setCourt] = useState("1");
   const [players, setPlayers] = useState([]);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errMsg, setErrMsg] = useState(null);
   const [okMsg, setOkMsg] = useState(null);
-
-  // selections
   const [teamA1, setTeamA1] = useState("");
   const [teamA2, setTeamA2] = useState("");
   const [teamB1, setTeamB1] = useState("");
   const [teamB2, setTeamB2] = useState("");
-
-  // confirm modal
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const loadPlayers = useCallback(async () => {
     setLoadingPlayers(true);
-    setErrMsg(null);
     try {
       const { data, error } = await fetchPlayers();
       if (error) throw error;
       setPlayers(data || []);
     } catch (err) {
-      console.error("fetchPlayers error", err);
       setErrMsg(err.message || "Failed to load players");
-      setPlayers([]);
     } finally {
       setLoadingPlayers(false);
     }
@@ -71,18 +53,15 @@ export default function RegisterMatchPage() {
       setErrMsg("Please select 4 players (two per team).");
       return false;
     }
-    const uniq = new Set(sel);
-    if (uniq.size < 4) {
+    if (new Set(sel).size < 4) {
       setErrMsg("Players must be unique across both teams.");
       return false;
     }
-    // optional: check teams have two players each (already implied)
     return true;
   }
 
   function onCreateClicked() {
-    if (!validate()) return;
-    setConfirmOpen(true);
+    if (validate()) setConfirmOpen(true);
   }
 
   async function doCreate() {
@@ -92,230 +71,258 @@ export default function RegisterMatchPage() {
     if (!validate()) return;
     setBusy(true);
     try {
-      const playerIds = [teamA1, teamA2, teamB1, teamB2];
-      const courtVal = court === "" ? 1 : Number(court || 1);
-      const { data, error } = await createManualMatch({
+      const { error } = await createManualMatch({
         matchDate: date,
-        court: courtVal,
-        playerIds,
+        court: court === "" ? 1 : Number(court || 1),
+        playerIds: [teamA1, teamA2, teamB1, teamB2],
       });
       if (error) throw error;
-      // data = { match, scores } per helper
-      setOkMsg("Match successfully created.");
-      // notify other pages
+      setOkMsg("Match created successfully.");
       window.dispatchEvent(new Event("matches-changed"));
       window.dispatchEvent(new Event("scores-changed"));
-      // reset form
       resetForm();
     } catch (err) {
-      console.error("createManualMatch error", err);
-      const message =
-        (err && (err.message || (err.error && err.error.message))) ||
-        JSON.stringify(err);
-      setErrMsg("Failed to create match: " + message);
+      setErrMsg("Failed: " + (err.message || JSON.stringify(err)));
     } finally {
       setBusy(false);
     }
   }
 
-  // build selected set for exclusion logic
   const selectedIds = useMemo(
     () => [teamA1, teamA2, teamB1, teamB2].filter(Boolean),
-    [teamA1, teamA2, teamB1, teamB2]
+    [teamA1, teamA2, teamB1, teamB2],
   );
 
-  // helper to compute options for a given select field:
-  // - allow current value (so selected remains visible)
-  // - exclude other selected values
   function optionsFor(currentValue) {
     const others = selectedIds.filter((id) => id && id !== currentValue);
-    return players.filter(
-      (p) => !others.includes(p.id) || p.id === currentValue
+    return players.filter((p) => !others.includes(p.id));
+  }
+
+  const nameOf = (id) => players.find((p) => p.id === id)?.name || "?";
+
+  function PlayerSelect({ value, setValue, placeholder }) {
+    return (
+      <select
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        disabled={loadingPlayers}
+        style={{
+          flex: 1,
+          padding: "9px 10px",
+          borderRadius: 9,
+          border: "1px solid var(--border)",
+          fontSize: 13,
+          background: value ? "var(--surface)" : "var(--surface2)",
+          fontWeight: value ? 700 : 400,
+          color: value ? "var(--text)" : "var(--muted)",
+          outline: "none",
+          fontFamily: "inherit",
+        }}
+      >
+        <option value="">{placeholder}</option>
+        {optionsFor(value).map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  function TeamCard({ label, color, bgColor, p1, setP1, p2, setP2 }) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          borderRadius: 10,
+          border: `1px solid ${bgColor}`,
+          background: `color-mix(in srgb, ${bgColor} 30%, white)`,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: "7px 11px",
+            background: bgColor,
+            borderBottom: `1px solid ${bgColor}`,
+          }}
+        >
+          <span style={{ fontWeight: 800, fontSize: 12, color }}>{label}</span>
+        </div>
+        <div
+          style={{
+            padding: "10px 11px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <PlayerSelect value={p1} setValue={setP1} placeholder="Player 1" />
+          <PlayerSelect value={p2} setValue={setP2} placeholder="Player 2" />
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="container" style={{ padding: 12 }}>
-      <div className="card" style={{ marginBottom: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Register Game</h3>
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            alignItems: "center",
-            marginBottom: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ minWidth: 160 }}>
-            <label
-              className="form-label"
-              style={{ display: "block", marginBottom: 6 }}
-            >
-              Date
-            </label>
-            <input
-              className="date-input"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
+    <div className="container" style={{ paddingTop: 12 }}>
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">➕ Register Game</span>
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>
+            {players.length} players loaded
+          </span>
+        </div>
+        <div className="card-body">
+          {/* Date + Court */}
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginBottom: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label className="form-label">Date</label>
+              <input
+                className="date-input"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div>
+              <label className="form-label">Court</label>
+              <input
+                className="number-input"
+                type="number"
+                min="1"
+                value={court}
+                onChange={(e) => setCourt(e.target.value)}
+                placeholder="1"
+                style={{ width: 70 }}
+              />
+            </div>
+          </div>
+
+          {/* Teams side by side */}
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginBottom: 14,
+              flexWrap: "wrap",
+            }}
+          >
+            <TeamCard
+              label="TEAM A"
+              color="var(--primary)"
+              bgColor="var(--primary-dim)"
+              p1={teamA1}
+              setP1={setTeamA1}
+              p2={teamA2}
+              setP2={setTeamA2}
+            />
+            <TeamCard
+              label="TEAM B"
+              color="var(--success)"
+              bgColor="var(--success-dim)"
+              p1={teamB1}
+              setP1={setTeamB1}
+              p2={teamB2}
+              setP2={setTeamB2}
             />
           </div>
 
-          <div style={{ minWidth: 100 }}>
-            <label
-              className="form-label"
-              style={{ display: "block", marginBottom: 6 }}
+          {/* Match preview */}
+          {teamA1 && teamA2 && teamB1 && teamB2 && (
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: 8,
+                marginBottom: 14,
+                background: "var(--surface2)",
+                border: "1px solid var(--border)",
+                fontSize: 12,
+                color: "var(--muted)",
+              }}
             >
-              Court (optional)
-            </label>
-            <input
-              className="number-input"
-              type="number"
-              min="1"
-              value={court}
-              onChange={(e) => setCourt(e.target.value)}
-              placeholder="1"
-              style={{ width: 100 }}
-            />
+              <strong style={{ color: "var(--text)" }}>
+                {nameOf(teamA1)} & {nameOf(teamA2)}
+              </strong>{" "}
+              <span>vs</span>{" "}
+              <strong style={{ color: "var(--text)" }}>
+                {nameOf(teamB1)} & {nameOf(teamB2)}
+              </strong>{" "}
+              — Court {court} · {date}
+            </div>
+          )}
+
+          {/* Error / success */}
+          {errMsg && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: "9px 12px",
+                borderRadius: 8,
+                background: "var(--danger-dim)",
+                border: "1px solid var(--danger-border)",
+                color: "var(--danger)",
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {errMsg}
+            </div>
+          )}
+          {okMsg && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: "9px 12px",
+                borderRadius: 8,
+                background: "var(--success-dim)",
+                border: "1px solid var(--success-border)",
+                color: "var(--success)",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              {okMsg}
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn generate"
+              onClick={onCreateClicked}
+              disabled={busy || loadingPlayers}
+              style={{ minWidth: 130 }}
+            >
+              {busy ? "Creating…" : "🏸 Create Match"}
+            </button>
+            <button className="btn" onClick={resetForm} disabled={busy}>
+              Reset
+            </button>
           </div>
         </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 12 }}>
-        <h4 style={{ marginTop: 0 }}>Team A</h4>
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <select
-            value={teamA1}
-            onChange={(e) => setTeamA1(e.target.value)}
-            style={{ padding: 8, borderRadius: 8, minWidth: 160 }}
-            disabled={loadingPlayers}
-          >
-            <option value="">Select player A1</option>
-            {optionsFor(teamA1).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={teamA2}
-            onChange={(e) => setTeamA2(e.target.value)}
-            style={{ padding: 8, borderRadius: 8, minWidth: 160 }}
-            disabled={loadingPlayers}
-          >
-            <option value="">Select player A2</option>
-            {optionsFor(teamA2).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ height: 18 }} />
-
-        <h4 style={{ marginTop: 0 }}>Team B</h4>
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <select
-            value={teamB1}
-            onChange={(e) => setTeamB1(e.target.value)}
-            style={{ padding: 8, borderRadius: 8, minWidth: 160 }}
-            disabled={loadingPlayers}
-          >
-            <option value="">Select player B1</option>
-            {optionsFor(teamB1).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={teamB2}
-            onChange={(e) => setTeamB2(e.target.value)}
-            style={{ padding: 8, borderRadius: 8, minWidth: 160 }}
-            disabled={loadingPlayers}
-          >
-            <option value="">Select player B2</option>
-            {optionsFor(teamB2).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div
-          style={{
-            marginTop: 18,
-            display: "flex",
-            gap: 12,
-            alignItems: "center",
-          }}
-        >
-          <button
-            className="btn generate"
-            onClick={onCreateClicked}
-            disabled={busy || loadingPlayers}
-            style={{ minWidth: 140 }}
-          >
-            {busy ? "Working…" : "Create Match"}
-          </button>
-          <button className="btn secondary" onClick={resetForm} disabled={busy}>
-            Reset
-          </button>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <div style={{ color: "var(--muted)" }}>
-            {players.length} players loaded.
-          </div>
-        </div>
-
-        {errMsg && (
-          <div style={{ marginTop: 12, color: "crimson", fontWeight: 600 }}>
-            {errMsg}
-          </div>
-        )}
-        {okMsg && (
-          <div style={{ marginTop: 12, color: "green", fontWeight: 700 }}>
-            {okMsg}
-          </div>
-        )}
       </div>
 
       <ConfirmModal
         open={confirmOpen}
-        title="Confirm create match"
-        message={`Create match on ${date} — Team A: ${
-          (players.find((p) => p.id === teamA1) || {}).name || "?"
-        } & ${
-          (players.find((p) => p.id === teamA2) || {}).name || "?"
-        } vs Team B: ${
-          (players.find((p) => p.id === teamB1) || {}).name || "?"
-        } & ${(players.find((p) => p.id === teamB2) || {}).name || "?"}?`}
+        title="Create match?"
+        message={`Team A: ${nameOf(teamA1)} & ${nameOf(teamA2)} vs Team B: ${nameOf(teamB1)} & ${nameOf(teamB2)} — Court ${court} on ${date}`}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={doCreate}
         confirmLabel="Create"
         cancelLabel="Cancel"
         loading={busy}
       />
+
+      <div style={{ height: 16 }} />
     </div>
   );
 }

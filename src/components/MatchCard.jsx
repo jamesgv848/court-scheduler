@@ -1,214 +1,45 @@
 // src/components/MatchCard.jsx
-import React, { useState, useMemo } from "react";
-
-import PropTypes from "prop-types";
-import ConfirmModal from "./ConfirmModal";
+import React, { useState } from "react";
 import {
-  recordTeamWinner as apiRecordTeamWinner,
-  undoWinner as apiUndoWinner,
-  deleteMatchById as apiDeleteMatchById,
-  updateMatchPlayers as apiUpdateMatchPlayers, // NEW
+  recordTeamWinner,
+  undoWinner,
+  updateMatchPlayers,
+  deleteMatchById,
 } from "../api/supabase-actions";
 
-/**
- * MatchCard — mobile-first, clickable team blocks to register winner.
- *
- * Behavior:
- *  - Clicking a team block opens confirmation modal to mark that team as winner.
- *  - After recording, the winning team block turns colored and shows a small trophy icon.
- *  - Clear button (undo) removes winner & points.
- *  - Completed matches get a stronger border to indicate finality.
- *  - Remove (delete) button only when no winner.
- *  - Edit players only when no winner (no extra confirm).
- */
-export default function MatchCard({ match, playersMap = {}, onChange }) {
+export default function MatchCard({ match, playersMap, onChange }) {
   const [busy, setBusy] = useState(false);
+
+  // FIX 5: keep prevScoreInput for the smart-dash logic, but start BLANK (not "21-")
   const [scoreInput, setScoreInput] = useState("");
   const [prevScoreInput, setPrevScoreInput] = useState("");
 
-  // NEW: edit players state
-  const [editPlayers, setEditPlayers] = useState([]);
   const [editOpen, setEditOpen] = useState(false);
+  const [editPlayers, setEditPlayers] = useState([]);
 
-  const [confirmState, setConfirmState] = useState({
-    open: false,
-    type: null, // teamRecord | undo | delete
-    payload: null,
-  });
+  const [winnerOpen, setWinnerOpen] = useState(false);
+  const [pendingTeam, setPendingTeam] = useState(null);
 
-  // normalize players array (some code paths call it players or player_ids)
-  const playersArr = match.player_ids || match.players || [];
-  const teamA = playersArr.slice(0, 2);
-  const teamB = playersArr.slice(2, 4);
-  const nameOf = (id) => (id ? playersMap[id] || id : "");
+  const [undoOpen, setUndoOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
-  // normalize winner to array form
-  const winnerArr = Array.isArray(match.winner)
+  const pids = match.player_ids || match.players || [];
+  const teamA = pids.slice(0, 2);
+  const teamB = pids.slice(2, 4);
+
+  const winnerIds = Array.isArray(match.winner)
     ? match.winner
     : match.winner
       ? [match.winner]
       : [];
-  const hasWinner = winnerArr.length > 0;
 
-  const teamAIsWinner = hasWinner && teamA.some((id) => winnerArr.includes(id));
-  const teamBIsWinner = hasWinner && teamB.some((id) => winnerArr.includes(id));
+  const hasWinner = winnerIds.length > 0;
+  const teamAWins = hasWinner && teamA.some((id) => winnerIds.includes(id));
+  const teamBWins = hasWinner && teamB.some((id) => winnerIds.includes(id));
 
-  const winnerLabel = useMemo(
-    () => (hasWinner ? winnerArr.map(nameOf).join(" & ") : ""),
-    [winnerArr, playersMap],
-  );
+  const nameOf = (id) => playersMap?.[id] || id;
 
-  function openConfirmForTeam(teamPlayers) {
-    setScoreInput("21-");
-    setConfirmState({ open: true, type: "teamRecord", payload: teamPlayers });
-  }
-
-  function openConfirmUndo() {
-    setScoreInput("");
-    setConfirmState({ open: true, type: "undo", payload: null });
-  }
-
-  function openConfirmDelete() {
-    setScoreInput("");
-    setConfirmState({ open: true, type: "delete", payload: null });
-  }
-
-  // NEW: open edit players directly (no confirm)
-  function openEditPlayers() {
-    setEditPlayers(playersArr);
-    setEditOpen(true);
-  }
-
-  async function doRecordTeamWin(teamPlayers) {
-    setConfirmState({ open: false, type: null, payload: null });
-    if (!match?.id) return alert("Match ID missing");
-
-    let normalizedScore =
-      scoreInput && scoreInput.trim() === "21-" ? "" : scoreInput.trim();
-
-    if (normalizedScore.endsWith(",")) {
-      normalizedScore = normalizedScore.slice(0, -1);
-    }
-
-    if (normalizedScore) {
-      const err = validateMatchScore(normalizedScore); // 🔧 UPDATED
-      if (err) {
-        alert(err);
-        return;
-      }
-    }
-
-    setBusy(true);
-    try {
-      const res = await apiRecordTeamWinner(
-        match.id,
-        teamPlayers,
-        normalizedScore || null,
-      );
-      if (res.error) throw res.error;
-      onChange && onChange();
-      window.dispatchEvent(new Event("scores-changed"));
-    } catch (err) {
-      console.error("recordTeamWinner error", err);
-      alert("Failed to record winner: " + (err.message || JSON.stringify(err)));
-    } finally {
-      setBusy(false);
-      setScoreInput("");
-    }
-  }
-
-  async function doUndo() {
-    setConfirmState({ open: false, type: null, payload: null });
-    if (!match?.id) return;
-    setBusy(true);
-    try {
-      const res = await apiUndoWinner(match.id);
-      if (res.error) throw res.error;
-      onChange && onChange();
-      window.dispatchEvent(new Event("scores-changed"));
-    } catch (err) {
-      console.error("undoWinner error", err);
-      alert("Failed to undo winner: " + (err.message || JSON.stringify(err)));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function doDeleteMatch() {
-    setConfirmState({ open: false, type: null, payload: null });
-    if (!match?.id) return alert("Match ID missing");
-    setBusy(true);
-    try {
-      const res = await apiDeleteMatchById(match.id);
-      if (res.error) throw res.error;
-      onChange && onChange();
-      window.dispatchEvent(new Event("scores-changed"));
-    } catch (err) {
-      console.error("deleteMatchById error", err);
-      alert("Failed to delete match: " + (err.message || JSON.stringify(err)));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // NEW: save edited players with duplicate validation
-  async function doSaveEditedPlayers() {
-    const unique = new Set(editPlayers.filter(Boolean));
-    if (unique.size !== 4) {
-      alert("Duplicate players detected. Each player must be unique.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const res = await apiUpdateMatchPlayers(match.id, editPlayers);
-      if (res.error) throw res.error;
-      setEditOpen(false);
-      onChange && onChange();
-      window.dispatchEvent(new Event("scores-changed"));
-    } catch (err) {
-      console.error("updateMatchPlayers error", err);
-      alert("Failed to update players");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // TEAM BLOCK
-  function TeamBlock({ ids = [], label = "A", emphasized = false }) {
-    const [p0 = "", p1 = ""] = ids;
-    const isA = label === "A";
-    const color = isA ? "#0b71d0" : "#059669";
-    const bg = emphasized ? color : "#fff";
-    const textColor = emphasized ? "#fff" : color;
-
-    return (
-      <button
-        type="button"
-        onClick={() => openConfirmForTeam(ids)}
-        disabled={busy}
-        className={`team-block ${emphasized ? "team-winner" : ""}`}
-        style={{ background: bg, color: textColor }}
-      >
-        <div
-          className="team-label"
-          style={{
-            background: emphasized ? "rgba(255,255,255,0.06)" : "#eef2ff",
-            color,
-          }}
-        >
-          {emphasized ? "🏆" : label}
-        </div>
-
-        <div className="team-names">
-          <div className="team-name-main">{nameOf(p0) || "—"}</div>
-          <div className="team-name-sub">{nameOf(p1) || "—"}</div>
-        </div>
-      </button>
-    );
-  }
-
-  // 🔧 UPDATED: multi-set score validation (winner-first, comma-separated)
+  // ── Score validation ────────────────────────────
   function validateMatchScore(scoreText) {
     if (!scoreText) return null;
 
@@ -226,204 +57,622 @@ export default function MatchCard({ match, playersMap = {}, onChange }) {
         return "Each set must look like 21-18";
       }
 
-      const [a, b] = set.split("-").map(Number);
+      const [winner, loser] = set.split("-").map(Number);
 
-      const win = Math.max(a, b);
-      const lose = Math.min(a, b);
+      // Winner must be >= loser
+      if (winner <= loser) {
+        return "Score must be written as winner-loser";
+      }
 
-      if (win < 21) {
+      // Minimum winning score
+      if (winner < 21) {
         return "Winning score must be at least 21";
       }
 
-      if (win - lose < 2) {
-        return "Each set must be won by at least 2 points";
+      // Max cap
+      if (winner > 30) {
+        return "Maximum score allowed is 30";
+      }
+
+      // Normal win before 29-29
+      if (winner < 30) {
+        if (winner - loser < 2) {
+          return "Set must be won by at least 2 points";
+        }
+      }
+
+      // Special 30-29 case
+      if (winner === 30 && loser !== 29) {
+        return "At 29-29, next point wins (30-29)";
       }
     }
 
     return null;
   }
 
+  // FIX 5: Restored original smart-dash logic from original MatchCard.
+  // Works exactly as before: type "21" → becomes "21-", then type "15" → "21-15".
+  // No pre-fill "21-" on open, no onFocus select() which was wiping the value.
   function handleScoreChange(e) {
     let v = e.target.value;
-
-    if (v === "") {
+    if (!v) {
       setScoreInput("");
       setPrevScoreInput("");
       return;
     }
-
     v = v.replace(/[^\d-,]/g, "");
-
     const isDeleting = v.length < prevScoreInput.length;
     const parts = v.split(",");
-
-    if (parts.some((p) => (p.match(/-/g) || []).length > 1)) {
-      return;
-    }
-
+    // reject if any segment has 2+ hyphens
+    if (parts.some((p) => (p.match(/-/g) || []).length > 1)) return;
     if (!isDeleting) {
       const last = parts[parts.length - 1];
-
-      // auto-add '-' after typing 2 digits
+      // auto-insert dash after 2 digits in a segment
       if (last.length === 2 && !last.includes("-")) {
         parts[parts.length - 1] = last + "-";
         v = parts.join(",");
       }
     }
-
     setPrevScoreInput(v);
     setScoreInput(v);
   }
 
-  const rowClass = `match-card card compact-match ${
-    hasWinner ? "match-completed" : ""
-  }`;
+  // ── Record winner ────────────────────────────────
+  function openWinnerConfirm(team) {
+    if (hasWinner || busy) return;
+    setPendingTeam(team);
+    // FIX 5: start blank — no pre-fill that fights the user
+    setScoreInput("21-");
+    setPrevScoreInput("21-");
+    setWinnerOpen(true);
+  }
 
+  async function doRecordWinner() {
+    if (!pendingTeam) return;
+    let normalized =
+      scoreInput && scoreInput.trim() === "21-" ? "" : scoreInput.trim();
+
+    // remove trailing comma only
+    if (normalized.endsWith(",")) {
+      normalized = normalized.slice(0, -1);
+    }
+
+    // If user manually leaves trailing dash like "22-",
+    // let validation handle it (do NOT auto-fix it)
+
+    if (normalized) {
+      const err = validateMatchScore(normalized);
+      if (err) {
+        alert(err);
+        return;
+      }
+    }
+
+    setBusy(true);
+    try {
+      const { error } = await recordTeamWinner(
+        match.id,
+        pendingTeam,
+        normalized || null,
+      );
+      if (error) throw error;
+      setWinnerOpen(false);
+      setScoreInput("");
+      setPrevScoreInput("");
+      onChange?.();
+      window.dispatchEvent(new Event("scores-changed"));
+    } catch {
+      alert("Failed to record winner");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Undo ─────────────────────────────────────────
+  async function doUndo() {
+    setBusy(true);
+    try {
+      const { error } = await undoWinner(match.id);
+      if (error) throw error;
+      setUndoOpen(false);
+      onChange?.();
+      window.dispatchEvent(new Event("scores-changed"));
+    } catch {
+      alert("Failed to undo");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Delete ───────────────────────────────────────
+  async function doDeleteMatch() {
+    setBusy(true);
+    try {
+      const { error } = await deleteMatchById(match.id);
+      if (error) throw error;
+      setDeleteOpen(false);
+      onChange?.();
+      window.dispatchEvent(new Event("scores-changed"));
+    } catch {
+      alert("Failed to delete match");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Edit players ─────────────────────────────────
+  function openEdit() {
+    setEditPlayers([...pids]);
+    setEditOpen(true);
+  }
+
+  async function doSaveEditedPlayers() {
+    const unique = new Set(editPlayers.filter(Boolean));
+    if (unique.size !== 4) {
+      alert("Each player must be unique.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await updateMatchPlayers(match.id, editPlayers);
+      if (error) throw error;
+      setEditOpen(false);
+      onChange?.();
+      window.dispatchEvent(new Event("scores-changed"));
+    } catch {
+      alert("Failed to update players");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Centered dialog ──────────────────────────────
+  function Dialog({ onClose, children }) {
+    return (
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2000,
+          padding: 20,
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: "#fff",
+            borderRadius: 16,
+            padding: 22,
+            width: "100%",
+            maxWidth: 340,
+            boxShadow: "0 20px 60px rgba(0,0,0,.22)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render ────────────────────────────────────────
   return (
-    <div className={rowClass} style={{ padding: 12, marginBottom: 10 }}>
-      {/* left */}
-      <div className="match-left">
-        <div className="match-index">#{match.match_index}</div>
-
-        <div className="teams">
-          <TeamBlock ids={teamA} label="A" emphasized={teamAIsWinner} />
-          <div className="vs">vs</div>
-          <TeamBlock ids={teamB} label="B" emphasized={teamBIsWinner} />
+    <>
+      <div className={`match-card${hasWinner ? " match-completed" : ""}`}>
+        {/* Top row */}
+        <div className="match-top-row">
+          <span className="match-game-label">Game #{match.match_index}</span>
+          <span className="badge yellow">Court {match.court}</span>
         </div>
 
-        {match.score_text && <div>Score: {match.score_text}</div>}
-      </div>
-
-      {/* right */}
-      <div className="match-right">
-        <div className="court-pill">Court {match.court}</div>
-
-        {!hasWinner && (
-          <>
-            <button className="btn btn-small" onClick={openEditPlayers}>
-              Edit Players
-            </button>
-
-            <button
-              className="btn btn-small btn-danger-outline"
-              onClick={openConfirmDelete}
-            >
-              Remove
-            </button>
-          </>
-        )}
-
-        {hasWinner && (
-          <>
-            <div className="trophy" title={winnerLabel}>
-              🏆
+        {/* Teams */}
+        <div className="teams-column">
+          <button
+            className={`team-block${teamAWins ? " team-winner" : ""}${hasWinner && !teamAWins ? " team-lost" : ""}`}
+            onClick={() => openWinnerConfirm(teamA)}
+            type="button"
+          >
+            <div className="team-label">A</div>
+            <div className="team-names">
+              <div className="team-name-main">{nameOf(teamA[0])}</div>
+              <div className="team-name-sub">{nameOf(teamA[1])}</div>
             </div>
-            <button
-              className="btn btn-small btn-danger"
-              onClick={openConfirmUndo}
-            >
-              Clear
-            </button>
-          </>
-        )}
+            {teamAWins && <span className="trophy">🏆</span>}
+            {!hasWinner && <span className="tap-hint">tap</span>}
+          </button>
+
+          <div className="vs-divider">
+            <div className="vs-line" />
+            <span className="vs">vs</span>
+            <div className="vs-line" />
+          </div>
+
+          <button
+            className={`team-block${teamBWins ? " team-winner" : ""}${hasWinner && !teamBWins ? " team-lost" : ""}`}
+            onClick={() => openWinnerConfirm(teamB)}
+            type="button"
+          >
+            <div className="team-label team-label-b">B</div>
+            <div className="team-names">
+              <div className="team-name-main">{nameOf(teamB[0])}</div>
+              <div className="team-name-sub">{nameOf(teamB[1])}</div>
+            </div>
+            {teamBWins && <span className="trophy">🏆</span>}
+            {!hasWinner && <span className="tap-hint">tap</span>}
+          </button>
+        </div>
+
+        {/*
+          FIX 1-4: Compact single-row footer that NEVER wraps.
+          Structure: [left: status icon + score] [right: action icon(s)]
+          - No text in status — icon only (✓ green / ⏳)
+          - Score sits inline next to status
+          - Action buttons are icon-only, fixed size, no text
+          - flex-nowrap + flex-shrink:0 on all children = guaranteed single row
+        */}
+        <div className="match-footer">
+          <div className="footer-left">
+            {hasWinner ? (
+              <>
+                <span className="footer-status done">✓</span>
+                {match.score_text && (
+                  <span className="score-display">{match.score_text}</span>
+                )}
+              </>
+            ) : (
+              <span className="footer-status pending">⏳</span>
+            )}
+          </div>
+          <div className="footer-actions">
+            {hasWinner ? (
+              <button
+                className="footer-icon-btn"
+                title="Clear result"
+                onClick={() => setUndoOpen(true)}
+                disabled={busy}
+              >
+                ↩
+              </button>
+            ) : (
+              <>
+                <button
+                  className="footer-icon-btn"
+                  title="Edit players"
+                  onClick={openEdit}
+                  disabled={busy}
+                >
+                  ✏️
+                </button>
+                <button
+                  className="footer-icon-btn danger"
+                  title="Remove game"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={busy}
+                >
+                  🗑
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Winner / Delete Confirm Modal (UNCHANGED) */}
-      <ConfirmModal
-        open={confirmState.open}
-        title={
-          confirmState.type === "undo"
-            ? "Clear match winner?"
-            : confirmState.type === "delete"
-              ? "Remove match?"
-              : "Confirm winner"
-        }
-        message={
-          confirmState.type === "undo" ? (
-            "This will remove the recorded winner and subtract awarded points for this match. This cannot be undone."
-          ) : confirmState.type === "delete" ? (
-            "This will permanently remove this match (and any associated scores). This action cannot be undone."
-          ) : confirmState.type === "teamRecord" ? (
-            <div>
-              <div style={{ marginBottom: 8 }}>
-                Mark{" "}
-                <strong>
-                  {confirmState.payload
-                    ? confirmState.payload.map(nameOf).join(" & ")
-                    : ""}
-                </strong>{" "}
-                as winner for match #{match.match_index}?
+      {/* ── Winner dialog ── */}
+      {winnerOpen && (
+        <Dialog onClose={() => !busy && setWinnerOpen(false)}>
+          <div style={{ textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🏆</div>
+            <div
+              style={{
+                fontWeight: 800,
+                fontSize: 16,
+                color: "var(--text)",
+                marginBottom: 8,
+              }}
+            >
+              Record Winner
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--success)",
+                background: "var(--success-dim)",
+                border: "1px solid var(--success-border)",
+                borderRadius: 8,
+                padding: "6px 12px",
+              }}
+            >
+              {pendingTeam?.map(nameOf).join(" & ")}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 18 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--muted)",
+                textTransform: "uppercase",
+                letterSpacing: 0.6,
+                textAlign: "center",
+                marginBottom: 8,
+              }}
+            >
+              Score (optional)
+            </div>
+            {/* FIX 5: blank start, smart-dash works, NO onFocus select */}
+            <input
+              type="text"
+              inputMode="numeric"
+              value={scoreInput}
+              onChange={handleScoreChange}
+              placeholder="21-15"
+              autoFocus
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "14px 10px",
+                borderRadius: 10,
+                border: "2px solid var(--border)",
+                fontFamily: "inherit",
+                fontSize: 28,
+                fontWeight: 800,
+                textAlign: "center",
+                letterSpacing: 3,
+                outline: "none",
+                color: "var(--text)",
+                background: "var(--surface2)",
+              }}
+            />
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--muted2)",
+                textAlign: "center",
+                marginTop: 6,
+              }}
+            >
+              Type 21 → dash appears · e.g. 21-15 or 21-15,22-20
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn"
+              style={{ flex: 1 }}
+              onClick={() => setWinnerOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn success"
+              style={{ flex: 2 }}
+              onClick={doRecordWinner}
+              disabled={busy}
+            >
+              {busy ? "Saving…" : "✓ Confirm"}
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {/* ── Undo dialog ── */}
+      {undoOpen && (
+        <Dialog onClose={() => !busy && setUndoOpen(false)}>
+          <div style={{ textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>↩</div>
+            <div
+              style={{
+                fontWeight: 800,
+                fontSize: 16,
+                color: "var(--text)",
+                marginBottom: 6,
+              }}
+            >
+              Clear Result?
+            </div>
+            <div
+              style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}
+            >
+              Remove the recorded winner and score for Game #{match.match_index}
+              .
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn"
+              style={{ flex: 1 }}
+              onClick={() => setUndoOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn danger"
+              style={{ flex: 1 }}
+              onClick={doUndo}
+              disabled={busy}
+            >
+              {busy ? "Clearing…" : "Clear"}
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {/* ── Delete dialog ── */}
+      {deleteOpen && (
+        <Dialog onClose={() => !busy && setDeleteOpen(false)}>
+          <div style={{ textAlign: "center", marginBottom: 18 }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🗑</div>
+            <div
+              style={{
+                fontWeight: 800,
+                fontSize: 16,
+                color: "var(--text)",
+                marginBottom: 6,
+              }}
+            >
+              Remove Match?
+            </div>
+            <div
+              style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}
+            >
+              Game #{match.match_index} · Court {match.court}
+              <br />
+              This permanently deletes this game.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn"
+              style={{ flex: 1 }}
+              onClick={() => setDeleteOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn danger"
+              style={{ flex: 1 }}
+              onClick={doDeleteMatch}
+              disabled={busy}
+            >
+              {busy ? "Removing…" : "Remove"}
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {/* ── Edit players dialog ── */}
+      {editOpen &&
+        (() => {
+          const slots = [
+            { label: "Team A · P1", idx: 0, isA: true },
+            { label: "Team A · P2", idx: 1, isA: true },
+            { label: "Team B · P1", idx: 2, isA: false },
+            { label: "Team B · P2", idx: 3, isA: false },
+          ];
+          const takenExcept = (idx) =>
+            editPlayers.filter((_, i) => i !== idx).filter(Boolean);
+          const hasDupe = new Set(editPlayers.filter(Boolean)).size < 4;
+          return (
+            <Dialog onClose={() => !busy && setEditOpen(false)}>
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+                Edit Players
               </div>
-
-              <input
-                type="text"
-                placeholder="21-18,21-15"
-                value={scoreInput}
-                onChange={handleScoreChange}
-                autoFocus
-                inputMode="numeric"
-                style={{ width: "100%", padding: "6px 8px", fontSize: 14 }}
-              />
-            </div>
-          ) : null
-        }
-        onCancel={() =>
-          setConfirmState({ open: false, type: null, payload: null })
-        }
-        onConfirm={() => {
-          if (confirmState.type === "teamRecord")
-            doRecordTeamWin(confirmState.payload);
-          else if (confirmState.type === "undo") doUndo();
-          else if (confirmState.type === "delete") doDeleteMatch();
-        }}
-        confirmLabel={
-          confirmState.type === "undo"
-            ? "Clear"
-            : confirmState.type === "delete"
-              ? "Remove"
-              : "Confirm"
-        }
-        cancelLabel="Cancel"
-        loading={busy}
-      />
-
-      {/* Edit Players Modal */}
-      <ConfirmModal
-        open={editOpen}
-        title="Edit players"
-        message={
-          <div style={{ display: "grid", gap: 8 }}>
-            {editPlayers.map((pid, idx) => (
-              <select
-                key={idx}
-                value={pid}
-                onChange={(e) => {
-                  const next = [...editPlayers];
-                  next[idx] = e.target.value;
-                  setEditPlayers(next);
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--muted)",
+                  marginBottom: 14,
                 }}
               >
-                {Object.entries(playersMap).map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            ))}
-          </div>
-        }
-        onCancel={() => setEditOpen(false)}
-        onConfirm={doSaveEditedPlayers}
-        confirmLabel="Save"
-        cancelLabel="Cancel"
-        loading={busy}
-      />
-    </div>
+                Game #{match.match_index} · Court {match.court}
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 10,
+                  marginBottom: 12,
+                }}
+              >
+                {slots.map(({ label, idx, isA }) => {
+                  const taken = takenExcept(idx);
+                  return (
+                    <div key={idx}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 9,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          marginBottom: 4,
+                          color: isA ? "var(--primary)" : "var(--success)",
+                        }}
+                      >
+                        {label}
+                      </label>
+                      <select
+                        value={editPlayers[idx] || ""}
+                        onChange={(e) => {
+                          const next = [...editPlayers];
+                          next[idx] = e.target.value;
+                          setEditPlayers(next);
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 7,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          outline: "none",
+                          fontFamily: "inherit",
+                          background: isA
+                            ? "var(--primary-dim)"
+                            : "var(--success-dim)",
+                          border: `1px solid ${isA ? "var(--primary-border)" : "var(--success-border)"}`,
+                          color: "var(--text)",
+                        }}
+                      >
+                        {Object.entries(playersMap).map(([id, name]) => (
+                          <option
+                            key={id}
+                            value={id}
+                            disabled={taken.includes(id)}
+                          >
+                            {name}
+                            {taken.includes(id) ? " ✗" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+              {hasDupe && (
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--danger)",
+                    marginBottom: 10,
+                    background: "var(--danger-dim)",
+                    border: "1px solid var(--danger-border)",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                  }}
+                >
+                  ⚠ Each position must have a different player
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="btn"
+                  style={{ flex: 1 }}
+                  onClick={() => setEditOpen(false)}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  style={{ flex: 2 }}
+                  onClick={doSaveEditedPlayers}
+                  disabled={busy || hasDupe}
+                >
+                  {busy ? "Saving…" : "Save Pairing"}
+                </button>
+              </div>
+            </Dialog>
+          );
+        })()}
+    </>
   );
 }
-
-MatchCard.propTypes = {
-  match: PropTypes.object.isRequired,
-  playersMap: PropTypes.object,
-  onChange: PropTypes.func,
-};

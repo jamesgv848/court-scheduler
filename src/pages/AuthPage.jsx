@@ -10,7 +10,7 @@ export default function AuthPage() {
   const [err, setErr] = useState(null);
   const navigate = useNavigate();
 
-  // If user already logged in, redirect away
+  // Redirect if already logged in
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -18,10 +18,7 @@ export default function AuthPage() {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (!mounted) return;
-        if (user) {
-          navigate("/", { replace: true });
-        }
+        if (mounted && user) navigate("/", { replace: true });
       } catch (e) {
         console.error("getUser error", e);
       }
@@ -31,51 +28,38 @@ export default function AuthPage() {
     };
   }, [navigate]);
 
-  // On load, attempt to parse magic-link session (only runs if fragment/query present)
+  // Handle magic-link redirect (tokens in URL fragment / query)
   useEffect(() => {
     let mounted = true;
     async function handleRedirect() {
-      // quick guard: check for expected fragments / query params
       const href = window.location.href;
       if (
         !href.includes("access_token") &&
         !href.includes("refresh_token") &&
         !href.includes("type=magiclink") &&
-        !href.includes("provider_token") &&
         !href.includes("error")
-      ) {
-        return; // nothing to do
-      }
+      )
+        return;
 
       setBusy(true);
-      setInfo(null);
-      setErr(null);
-
       try {
-        // 1) Preferred: if supabase client has getSessionFromUrl, use it (available in some versions)
-        if (
-          supabase?.auth?.getSessionFromUrl &&
-          typeof supabase.auth.getSessionFromUrl === "function"
-        ) {
-          const { data, error: exchangeError } =
-            await supabase.auth.getSessionFromUrl({ storeSession: true });
-          if (exchangeError) throw exchangeError;
-          // success: session stored by the client
-          setInfo("Signed in successfully — redirecting...");
-          // clear url fragment/query to avoid re-processing if user refreshes
+        // Preferred: getSessionFromUrl
+        if (typeof supabase?.auth?.getSessionFromUrl === "function") {
+          const { error } = await supabase.auth.getSessionFromUrl({
+            storeSession: true,
+          });
+          if (error) throw error;
+          setInfo("Signed in — redirecting…");
           try {
             history.replaceState(null, "", window.location.pathname);
           } catch (e) {}
           setTimeout(() => navigate("/", { replace: true }), 700);
           return;
         }
-
-        // 2) Fallback: manually parse tokens from URL (works for supabase-js v2 when getSessionFromUrl not present)
-        // parse both window.location.hash (fragment) and search (query)
+        // Fallback: parse tokens manually
         function parseParams(str) {
           if (!str) return {};
-          // remove leading '#' or '?'
-          const s = str[0] === "#" || str[0] === "?" ? str.substring(1) : str;
+          const s = str[0] === "#" || str[0] === "?" ? str.slice(1) : str;
           return s.split("&").reduce((acc, kv) => {
             const [k, v] = kv.split("=");
             if (!k) return acc;
@@ -83,120 +67,77 @@ export default function AuthPage() {
             return acc;
           }, {});
         }
-
-        const hashParams = parseParams(window.location.hash);
-        const queryParams = parseParams(window.location.search);
-
-        // Prefer hash params (supabase usually puts tokens in the hash)
-        const params = Object.keys(hashParams).length
-          ? hashParams
-          : queryParams;
-        const access_token =
-          params["access_token"] ||
-          params["access-token"] ||
-          params["accessToken"];
+        const params = Object.keys(parseParams(window.location.hash)).length
+          ? parseParams(window.location.hash)
+          : parseParams(window.location.search);
+        const access_token = params["access_token"] || params["access-token"];
         const refresh_token =
-          params["refresh_token"] ||
-          params["refresh-token"] ||
-          params["refreshToken"];
-        // sometimes jwt is present as "provider_token" etc; supabase-js expects access + refresh
-
-        if (access_token && refresh_token) {
-          // use setSession to store tokens in client (v2)
-          if (
-            supabase?.auth?.setSession &&
-            typeof supabase.auth.setSession === "function"
-          ) {
-            const { data, error: setErr } = await supabase.auth.setSession({
-              access_token,
-              refresh_token,
-            });
-            if (setErr) throw setErr;
-            setInfo("Signed in successfully — redirecting...");
-            try {
-              history.replaceState(null, "", window.location.pathname);
-            } catch (e) {}
-            setTimeout(() => navigate("/", { replace: true }), 700);
-            return;
-          } else {
-            // older clients might not have setSession, fallback to storing nothing (can't proceed)
-            throw new Error(
-              "Supabase client does not support programmatic session set. Please upgrade @supabase/supabase-js."
-            );
-          }
+          params["refresh_token"] || params["refresh-token"];
+        if (
+          access_token &&
+          refresh_token &&
+          typeof supabase.auth.setSession === "function"
+        ) {
+          const { error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+          if (error) throw error;
+          setInfo("Signed in — redirecting…");
+          try {
+            history.replaceState(null, "", window.location.pathname);
+          } catch (e) {}
+          setTimeout(() => navigate("/", { replace: true }), 700);
+          return;
         }
-
-        // if we get here, there's no recognizable tokens — maybe an error parameter is present
         if (params["error"] || params["error_description"]) {
-          const msg =
+          throw new Error(
             params["error_description"] ||
-            params["error"] ||
-            "Unknown authentication error from redirect";
-          throw new Error(msg);
+              params["error"] ||
+              "Auth redirect error",
+          );
         }
-
-        // nothing to handle
       } catch (e) {
-        console.error("getSessionFromUrl / redirect handling error", e);
-        setErr(e?.message || JSON.stringify(e));
+        if (mounted) setErr(e?.message || JSON.stringify(e));
       } finally {
-        setBusy(false);
+        if (mounted) setBusy(false);
       }
     }
-
     handleRedirect();
     return () => {
       mounted = false;
     };
   }, [navigate]);
 
-  // Main handler: send magic link (sign-in) and fallback to sign-up if needed
   async function handleSendMagicLink(e) {
     e?.preventDefault?.();
     setInfo(null);
     setErr(null);
-
     if (!email || !/\S+@\S+\.\S+/.test(email)) {
-      setErr("Please enter a valid email address.");
+      setErr("Enter a valid email.");
       return;
     }
-
     setBusy(true);
     try {
       const redirectTo = window.location.origin + "/auth";
-
-      // Try sign-in with magic link first
-      const { data: signInData, error: signInError } =
-        await supabase.auth.signInWithOtp({
-          email,
-          options: { emailRedirectTo: redirectTo },
-        });
-
+      const { error: signInError } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectTo },
+      });
       if (!signInError) {
-        setInfo("Magic link sent. Check your email (and spam).");
+        setInfo("Magic link sent. Check your inbox (and spam).");
         setEmail("");
         return;
       }
-
-      // If sign-in fails in a way that requires creating an account, attempt signUp
-      console.debug(
-        "signInWithOtp error, attempting signUp fallback:",
-        signInError
+      const { error: signUpError } = await supabase.auth.signUp(
+        { email },
+        { emailRedirectTo: redirectTo },
       );
-      const { data: signUpData, error: signUpError } =
-        await supabase.auth.signUp({ email }, { emailRedirectTo: redirectTo });
-
-      if (signUpError) {
-        console.error("signUp fallback error:", signUpError);
-        setErr(signUpError.message || "Failed to send magic link. Try again.");
-      } else {
-        setInfo(
-          "Account created (if new) and magic link sent. Check your email."
-        );
-        setEmail("");
-      }
+      if (signUpError)
+        setErr(signUpError.message || "Failed to send magic link.");
+      else setInfo("Account created and magic link sent. Check your inbox.");
+      setEmail("");
     } catch (error) {
-      console.error("Unexpected auth error:", error);
       setErr(error?.message || JSON.stringify(error));
     } finally {
       setBusy(false);
@@ -204,27 +145,95 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="container" style={{ maxWidth: 560, marginTop: 28 }}>
-      <div className="card" style={{ padding: 20 }}>
-        <h2 style={{ marginTop: 0 }}>Sign in / Sign up</h2>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "var(--bg)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          background: "#fff",
+          borderRadius: 14,
+          padding: 24,
+          boxShadow: "0 8px 32px rgba(0,0,0,.10)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        {/* Logo / brand */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 22,
+          }}
+        >
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              background: "linear-gradient(135deg,#e05a1c,#c44000)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+          >
+            🏸
+          </div>
+          <div>
+            <div
+              style={{ fontWeight: 800, fontSize: 17, color: "var(--text)" }}
+            >
+              CourtSync
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted)" }}>
+              Badminton scheduling
+            </div>
+          </div>
+        </div>
 
-        <p style={{ color: "#555", marginTop: 0 }}>
-          Enter your email and we'll send you a magic link. Clicking it will
-          sign you in (or create an account if you're new).
+        <h2
+          style={{
+            margin: "0 0 6px",
+            fontSize: 18,
+            fontWeight: 800,
+            color: "var(--text)",
+          }}
+        >
+          Sign in
+        </h2>
+        <p style={{ margin: "0 0 18px", color: "var(--muted)", fontSize: 13 }}>
+          Enter your email to receive a magic link. No password needed.
         </p>
 
-        {/* Feedback */}
         {busy && (
-          <div style={{ color: "#666", marginBottom: 8 }}>Processing…</div>
+          <div
+            style={{ color: "var(--muted)", marginBottom: 10, fontSize: 13 }}
+          >
+            Processing…
+          </div>
         )}
+
         {info && (
           <div
             style={{
-              marginTop: 12,
-              padding: 10,
+              marginBottom: 14,
+              padding: "10px 12px",
               borderRadius: 8,
-              background: "#ecfdf5",
-              color: "#065f46",
+              background: "var(--success-dim)",
+              border: "1px solid var(--success-border)",
+              color: "var(--success)",
+              fontSize: 13,
+              fontWeight: 600,
             }}
           >
             {info}
@@ -233,64 +242,75 @@ export default function AuthPage() {
         {err && (
           <div
             style={{
-              marginTop: 12,
-              padding: 10,
+              marginBottom: 14,
+              padding: "10px 12px",
               borderRadius: 8,
-              background: "#fff1f2",
-              color: "#991b1b",
+              background: "var(--danger-dim)",
+              border: "1px solid var(--danger-border)",
+              color: "var(--danger)",
+              fontSize: 13,
+              fontWeight: 600,
             }}
           >
             {err}
           </div>
         )}
 
-        <form onSubmit={handleSendMagicLink} style={{ marginTop: 14 }}>
-          <label style={{ display: "block", marginBottom: 8, fontWeight: 700 }}>
-            Email
-          </label>
+        <form onSubmit={handleSendMagicLink}>
+          <label className="form-label">Email</label>
           <input
-            className="date-input"
+            className="auth-input"
             type="email"
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoFocus
-            style={{ width: "100%", marginBottom: 10 }}
+            style={{ marginBottom: 14 }}
           />
-
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn generate" type="submit" disabled={busy}>
+            <button
+              type="submit"
+              className="auth-btn"
+              disabled={busy}
+              style={{ flex: 1 }}
+            >
               {busy ? "Sending…" : "Send magic link"}
             </button>
             <button
               type="button"
-              className="btn secondary"
+              className="btn"
               onClick={() => {
                 setEmail("");
                 setInfo(null);
                 setErr(null);
               }}
-              disabled={busy}
             >
               Clear
             </button>
           </div>
         </form>
 
-        <hr style={{ margin: "16px 0", borderColor: "rgba(15,23,36,0.06)" }} />
-
-        <div style={{ color: "#666", fontSize: 13 }}>
-          Need help? Make sure the redirect URL{" "}
+        <hr
+          style={{
+            margin: "20px 0",
+            borderColor: "var(--border)",
+            borderTop: "none",
+          }}
+        />
+        <div style={{ color: "var(--muted2)", fontSize: 12 }}>
+          Redirect URL must be added in Supabase → Auth → URL Configuration:{" "}
           <code
             style={{
-              background: "#f3f4f6",
-              padding: "2px 6px",
-              borderRadius: 6,
+              background: "var(--surface2)",
+              padding: "1px 4px",
+              borderRadius: 4,
+              fontSize: 11,
             }}
           >
-            {window.location.origin + "/auth"}
-          </code>{" "}
-          is added to your Supabase project's Redirect URLs.
+            {typeof window !== "undefined"
+              ? window.location.origin + "/auth"
+              : "/auth"}
+          </code>
         </div>
       </div>
     </div>

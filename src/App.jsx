@@ -1,6 +1,12 @@
 // src/App.jsx
-import React, { useEffect, useState } from "react";
-import { Routes, Route, NavLink, Navigate } from "react-router-dom";
+import React, { useEffect, useState, useRef } from "react";
+import {
+  Routes,
+  Route,
+  useNavigate,
+  useLocation,
+  Navigate,
+} from "react-router-dom";
 import SchedulePage from "./pages/SchedulePage";
 import ScoreboardPage from "./pages/ScoreboardPage";
 import PlayersPage from "./pages/PlayersPage";
@@ -12,15 +18,26 @@ import RegisterMatchPage from "./pages/RegisterMatchPage";
 import ImportSchedulePage from "./pages/ImportSchedulePage";
 import { supabase } from "./supabaseClient";
 
-import { Trophy } from "lucide-react"; // badminton shuttlecock icon
+// Bottom nav tabs — primary (always visible) and more (in popup)
+const PRIMARY_TABS = [
+  { path: "/", label: "Schedule", icon: "📅" },
+  { path: "/scoreboard", label: "Scores", icon: "🏆" },
+  { path: "/pairing-stats", label: "Pairing", icon: "🤝" },
+  { path: "/import-schedule", label: "Import", icon: "📥" },
+];
+const MORE_TABS = [
+  { path: "/players", label: "Players", icon: "👥" },
+  { path: "/fixed-pairs", label: "Fixed Pairs", icon: "🔗" },
+  { path: "/register-game", label: "Register", icon: "➕" },
+];
 
 export default function App() {
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [emailModalInitial, setEmailModalInitial] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef(null);
 
-  // Load initial user and subscribe to auth changes
+  // Auth state
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -30,24 +47,27 @@ export default function App() {
         } = await supabase.auth.getUser();
         if (mounted) setUser(u ?? null);
       } catch (e) {
-        // ignore
+        /* ignore */
       }
     })();
-
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
-
     return () => {
       mounted = false;
       data?.subscription?.unsubscribe?.();
     };
   }, []);
 
-  function openEmailModal(prefill = "") {
-    setEmailModalInitial(prefill);
-    setEmailModalOpen(true);
-  }
+  // Close more menu on outside click
+  useEffect(() => {
+    function h(e) {
+      if (moreRef.current && !moreRef.current.contains(e.target))
+        setMoreOpen(false);
+    }
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
 
   async function handleSignOut() {
     try {
@@ -55,154 +75,54 @@ export default function App() {
       setUser(null);
     } catch (err) {
       console.error("signOut err", err);
-      alert("Sign out failed");
     }
   }
 
   return (
-    <div>
-      <header className="app-header" style={{ padding: "8px 16px" }}>
-        <div
-          className="header-left"
-          style={{ display: "flex", alignItems: "center", gap: 12 }}
-        >
-          <div
-            className="logo"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              background: "linear-gradient(135deg, #007bff, #0056d2)", // nice gradient blue
-              boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-            }}
-          >
-            <Trophy size={22} color="white" strokeWidth={2.2} />
-          </div>
-          {/* desktop nav */}
-          <nav
-            className="nav-buttons"
-            style={{ display: "flex", gap: 8, alignItems: "center" }}
-          >
-            <NavLink
-              to="/players"
-              className={({ isActive }) =>
-                `nav-button ${isActive ? "active" : ""}`
-              }
-            >
-              Players
-            </NavLink>
-            <NavLink
-              to="/schedule"
-              className={({ isActive }) =>
-                `nav-button ${isActive ? "active" : ""}`
-              }
-            >
-              Schedule
-            </NavLink>
-            <NavLink
-              to="/scoreboard"
-              className={({ isActive }) =>
-                `nav-button ${isActive ? "active" : ""}`
-              }
-            >
-              Scoreboard
-            </NavLink>
-            <NavLink
-              to="/pairing-stats"
-              className={({ isActive }) =>
-                `nav-button ${isActive ? "active" : ""}`
-              }
-            >
-              Pairing Stats
-            </NavLink>
-            <NavLink
-              to="/fixed-pairs"
-              className={({ isActive }) =>
-                `nav-button ${isActive ? "active" : ""}`
-              }
-            >
-              Fixed Pairs
-            </NavLink>
-            <NavLink
-              to="/register-game"
-              className={({ isActive }) =>
-                `nav-button ${isActive ? "active" : ""}`
-              }
-            >
-              Register Game
-            </NavLink>
-            <NavLink
-              to="/import-schedule"
-              className={({ isActive }) =>
-                `nav-button ${isActive ? "active" : ""}`
-              }
-            >
-              Import Schedule
-            </NavLink>
-          </nav>
+    <div
+      style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}
+    >
+      {/* ── Top header bar ── */}
+      <header className="app-header">
+        <div className="header-left">
+          <div className="logo">🏸</div>
+          <span className="brand-name">
+            Court<span>Sync</span>
+          </span>
         </div>
-
-        <div
-          className="header-right"
-          style={{ display: "flex", alignItems: "center", gap: 10 }}
-        >
+        <div className="header-right">
           {user ? (
             <>
-              <div style={{ color: "#333", fontSize: 13 }}>{user.email}</div>
-              <button
-                onClick={handleSignOut}
-                className="btn danger signout-btn"
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--muted)",
+                  maxWidth: 140,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
               >
+                {user.email}
+              </span>
+              <button className="signout-btn" onClick={handleSignOut}>
                 ⎋ Sign Out
               </button>
             </>
           ) : (
-            <>
-              {/* Single unified CTA — opens the email modal for both sign-up & sign-in */}
-              <button className="auth-btn" onClick={() => openEmailModal("")}>
-                Send Login Link
-              </button>
-              {/* Optional: keep a small "Sign In" link for direct navigation to /auth */}
-              <NavLink
-                to="/auth"
-                className="nav-button"
-                style={{ display: "none" }}
-              >
-                Sign In
-              </NavLink>
-            </>
+            <button
+              className="auth-btn"
+              style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => setEmailModalOpen(true)}
+            >
+              Sign In
+            </button>
           )}
-
-          {/* mobile toggle - show via CSS on small screens */}
-          <button
-            onClick={() => setMobileOpen((s) => !s)}
-            aria-label="toggle menu"
-            style={{
-              display: "none", // show via CSS media query if needed
-              background: "transparent",
-              border: "none",
-              fontSize: 20,
-              cursor: "pointer",
-            }}
-            id="mobile-nav-toggle"
-          >
-            ☰
-          </button>
         </div>
       </header>
 
-      <MobileNav
-        open={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-        user={user}
-        onOpenEmail={() => openEmailModal("")}
-        onSignOut={handleSignOut}
-      />
-
-      <main style={{ padding: "12px 20px" }}>
+      {/* ── Page content ── */}
+      <main style={{ flex: 1 }}>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route
@@ -261,99 +181,104 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
-      {/* email modal */}
+      {/* ── Bottom nav ── */}
+      {user && (
+        <BottomNav
+          moreOpen={moreOpen}
+          setMoreOpen={setMoreOpen}
+          moreRef={moreRef}
+        />
+      )}
+
+      {/* ── Email / magic-link modal ── */}
       <EmailModal
         open={emailModalOpen}
-        initialEmail={emailModalInitial}
         onClose={() => setEmailModalOpen(false)}
       />
     </div>
   );
 }
 
-/** MobileNav component */
-function MobileNav({ open, onClose, user, onOpenEmail, onSignOut }) {
-  if (!open) return null;
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        top: 64,
-        background: "#fff",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-        zIndex: 60,
-        padding: 12,
-      }}
-    >
-      <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <NavLink to="/players" onClick={onClose} className="nav-button">
-          Players
-        </NavLink>
-        <NavLink to="/schedule" onClick={onClose} className="nav-button">
-          Schedule
-        </NavLink>
-        <NavLink to="/scoreboard" onClick={onClose} className="nav-button">
-          Scoreboard
-        </NavLink>
-        <NavLink to="/pairing-stats" onClick={onClose} className="nav-button">
-          Pairing Stats
-        </NavLink>
-        <NavLink to="/import-schedule" onClick={onClose} className="nav-button">
-          Import Schedule
-        </NavLink>
-      </nav>
+// ── Bottom navigation ──────────────────────────────────────────────────────
+function BottomNav({ moreOpen, setMoreOpen, moreRef }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentPath = location.pathname;
+  const inMore = MORE_TABS.some((t) => t.path === currentPath);
 
-      <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-        {user ? (
-          <button
-            className="auth-btn secondary"
-            onClick={() => {
-              onSignOut();
-              onClose();
-            }}
-          >
-            Sign Out
-          </button>
-        ) : (
-          <>
+  function go(path) {
+    navigate(path);
+    setMoreOpen(false);
+  }
+
+  return (
+    <>
+      {/* More menu overlay */}
+      {moreOpen && (
+        <div className="more-overlay" onClick={() => setMoreOpen(false)} />
+      )}
+
+      {/* More menu popup */}
+      {moreOpen && (
+        <div className="more-menu" ref={moreRef}>
+          {MORE_TABS.map((t) => (
             <button
-              className="auth-btn"
-              onClick={() => {
-                onOpenEmail();
-                onClose();
-              }}
+              key={t.path}
+              className={`more-item${currentPath === t.path ? " active" : ""}`}
+              onClick={() => go(t.path)}
             >
-              Sign Up
+              <span style={{ fontSize: 16 }}>{t.icon}</span>
+              {t.label}
             </button>
-            <NavLink to="/auth" onClick={onClose} className="nav-button">
-              Sign In
-            </NavLink>
-          </>
-        )}
-      </div>
-    </div>
+          ))}
+        </div>
+      )}
+
+      {/* Bottom tab bar — FIX 1: inner div constrains tabs to max-width */}
+      <nav className="bottom-nav">
+        <div className="bottom-nav-inner">
+          {PRIMARY_TABS.map((t) => (
+            <button
+              key={t.path}
+              className={`bnav-btn${currentPath === t.path ? " active" : ""}`}
+              onClick={() => go(t.path)}
+            >
+              <span className="bnav-icon">{t.icon}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+
+          {/* More button */}
+          <button
+            className={`bnav-btn${inMore || moreOpen ? " active" : ""}`}
+            onClick={() => setMoreOpen((o) => !o)}
+          >
+            <span className="bnav-icon">⋯</span>
+            <span>More</span>
+          </button>
+        </div>
+      </nav>
+    </>
   );
 }
 
-/** EmailModal component */
-function EmailModal({ open, initialEmail = "", onClose }) {
-  const [email, setEmail] = useState(initialEmail);
+// ── EmailModal ─────────────────────────────────────────────────────────────
+function EmailModal({ open, onClose }) {
+  const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+
   useEffect(() => {
     if (open) {
-      setEmail(initialEmail || "");
+      setEmail("");
       setSent(false);
       setBusy(false);
     }
-  }, [open, initialEmail]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -365,23 +290,16 @@ function EmailModal({ open, initialEmail = "", onClose }) {
     }
     try {
       setBusy(true);
-      const redirectTo = window.location.origin + "/auth";
-      const { data, error } = await supabase.auth.signInWithOtp({
+      const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: redirectTo },
+        options: { emailRedirectTo: window.location.origin + "/auth" },
       });
       if (error) {
-        console.error("signInWithOtp error", error);
-        alert(
-          "Failed to send magic link: " +
-            (error.message || JSON.stringify(error))
-        );
-        setBusy(false);
+        alert("Failed: " + error.message);
         return;
       }
       setSent(true);
     } catch (err) {
-      console.error("sendMagicLink unexpected", err);
       alert("Unexpected error: " + (err.message || err));
     } finally {
       setBusy(false);
@@ -389,76 +307,87 @@ function EmailModal({ open, initialEmail = "", onClose }) {
   }
 
   return (
-    <div role="dialog" aria-modal="true" style={backdropStyle}>
-      <div style={modalStyle}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 2000,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          width: 400,
+          maxWidth: "100%",
+          background: "#fff",
+          borderRadius: 12,
+          padding: 20,
+          boxShadow: "0 12px 48px rgba(0,0,0,.14)",
+          border: "1px solid var(--border)",
+        }}
+      >
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            marginBottom: 14,
           }}
         >
-          <h3 style={{ margin: 0 }}>Send magic link</h3>
-          <button onClick={onClose} style={closeBtnStyle} aria-label="Close">
+          <h3 style={{ margin: 0, fontSize: 16 }}>Sign in</h3>
+          <button
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "transparent",
+              fontSize: 18,
+              cursor: "pointer",
+            }}
+          >
             ✕
           </button>
         </div>
 
         {!sent ? (
-          <form onSubmit={sendMagicLink} style={{ marginTop: 12 }}>
-            <label style={{ display: "block", marginBottom: 8, fontSize: 13 }}>
-              Email
-            </label>
+          <form onSubmit={sendMagicLink}>
+            <label className="form-label">Email</label>
             <input
-              autoFocus
               type="email"
               className="auth-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              style={{
-                width: "100%",
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #ddd",
-              }}
+              autoFocus
+              style={{ marginBottom: 12 }}
             />
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <div style={{ display: "flex", gap: 8 }}>
               <button type="submit" className="auth-btn" disabled={busy}>
-                {busy ? "Sending…" : "Send link"}
+                {busy ? "Sending…" : "Send magic link"}
               </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={onClose}
-                disabled={busy}
-              >
+              <button type="button" className="btn" onClick={onClose}>
                 Cancel
               </button>
             </div>
-            <div style={{ marginTop: 8, color: "#666", fontSize: 13 }}>
-              You will receive a magic link via email. Redirect will return you
-              to the app.
-            </div>
           </form>
         ) : (
-          <div style={{ marginTop: 12 }}>
+          <div>
             <div style={{ marginBottom: 8 }}>
               Magic link sent to <strong>{email}</strong>.
             </div>
-            <div style={{ color: "#666", marginBottom: 12 }}>
-              Check your inbox (and spam) and click the link to sign in.
+            <div
+              style={{ color: "var(--muted)", marginBottom: 14, fontSize: 13 }}
+            >
+              Check your inbox and click the link to sign in.
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="auth-btn" onClick={onClose}>
                 Done
               </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  setSent(false);
-                }}
-              >
+              <button className="btn" onClick={() => setSent(false)}>
                 Send again
               </button>
             </div>
@@ -468,28 +397,3 @@ function EmailModal({ open, initialEmail = "", onClose }) {
     </div>
   );
 }
-
-/** Small styles used by the modal (you can move them to CSS) */
-const backdropStyle = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,0.35)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 2000,
-};
-const modalStyle = {
-  width: 420,
-  maxWidth: "calc(100% - 24px)",
-  background: "#fff",
-  padding: 18,
-  borderRadius: 12,
-  boxShadow: "0 12px 48px rgba(0,0,0,0.16)",
-};
-const closeBtnStyle = {
-  border: "none",
-  background: "transparent",
-  fontSize: 18,
-  cursor: "pointer",
-};

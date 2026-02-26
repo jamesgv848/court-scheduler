@@ -1,5 +1,5 @@
 // src/pages/SchedulePage.jsx
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "../supabaseClient";
 import { generateSchedule } from "../utils/scheduler.simple";
 import {
@@ -16,18 +16,30 @@ import ConfirmModal from "../components/ConfirmModal";
 
 const STORAGE_KEY = "cs_selected_date";
 
+// Groups matches by their native `round` field.
+// Falls back to deriving round from match_index if field absent.
+function groupByRounds(matches, numCourts = 2) {
+  const sorted = [...matches].sort((a, b) => a.match_index - b.match_index);
+  const rounds = {};
+  sorted.forEach((m) => {
+    const r = m.round ?? Math.ceil(m.match_index / numCourts);
+    if (!rounds[r]) rounds[r] = [];
+    rounds[r].push(m);
+  });
+  return rounds;
+}
+
 export default function SchedulePage() {
   const [players, setPlayers] = useState([]);
   const [available, setAvailable] = useState([]);
-  // Use text inputs for counts so user can type freely; we'll parse when used
   const [courtsInput, setCourtsInput] = useState("1");
   const [matchesPerCourtInput, setMatchesPerCourtInput] = useState("5");
-
   const [date, setDate] = useState(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored || new Date().toISOString().slice(0, 10);
+    return (
+      window.localStorage.getItem(STORAGE_KEY) ||
+      new Date().toISOString().slice(0, 10)
+    );
   });
-
   const [preview, setPreview] = useState([]);
   const [savedMatches, setSavedMatches] = useState([]);
   const [pairingMap, setPairingMap] = useState(new Map());
@@ -36,8 +48,6 @@ export default function SchedulePage() {
   const [loadingSave, setLoadingSave] = useState(false);
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [clearing, setClearing] = useState(false);
-
-  // modal state for confirmations (type: "generate" | "save" | "clear")
   const [modalState, setModalState] = useState({
     open: false,
     type: null,
@@ -45,60 +55,48 @@ export default function SchedulePage() {
     loading: false,
   });
 
-  // playersMap for quick name lookup
   const playersMap = Object.fromEntries(
     (players || []).map((p) => [p.id, p.name]),
   );
-
-  // Helpers to parse counts (allow empty while typing)
   const parsePositiveInt = (v, fallback = 1) => {
-    if (v === null || v === undefined) return fallback;
-    const n = parseInt(String(v).trim(), 10);
+    const n = parseInt(String(v ?? "").trim(), 10);
     return Number.isFinite(n) && n > 0 ? n : fallback;
   };
 
-  // Load players
+  // ── Data loaders ────────────────────────────────
   const loadPlayers = useCallback(async () => {
     try {
       const { data, error } = await fetchPlayers();
       if (error) throw error;
       setPlayers(data || []);
     } catch (err) {
-      console.error("loadPlayers error", err);
+      console.error("loadPlayers", err);
     }
   }, []);
 
-  // Load pairing/opponent history maps
   const loadHistory = useCallback(async () => {
     try {
-      const pm = await fetchPairingHistoryMap();
-      const om = await fetchOpponentHistoryMap();
-      setPairingMap(pm);
-      setOpponentMap(om);
+      setPairingMap(await fetchPairingHistoryMap());
+      setOpponentMap(await fetchOpponentHistoryMap());
     } catch (err) {
-      console.error("loadHistory error", err);
+      console.error("loadHistory", err);
     }
   }, []);
 
-  // Load ratings (effective_rating = max(50, win_pct))
   const loadRatings = useCallback(async () => {
     try {
       const { data, error } = await fetchPlayerTotalsOverall();
       if (error) throw error;
-
       const map = new Map();
-      (data || []).forEach((r) => {
-        const raw = Number(r.win_pct ?? 0);
-        map.set(r.id, Math.max(50, raw));
-      });
-
+      (data || []).forEach((r) =>
+        map.set(r.id, Math.max(50, Number(r.win_pct ?? 0))),
+      );
       setRatingsMap(map);
     } catch (err) {
-      console.error("loadRatings error", err);
+      console.error("loadRatings", err);
     }
   }, []);
 
-  // Load saved matches for date
   const loadSavedMatches = useCallback(async () => {
     try {
       setLoadingMatches(true);
@@ -106,26 +104,23 @@ export default function SchedulePage() {
       if (error) throw error;
       setSavedMatches(data || []);
     } catch (err) {
-      console.error("loadSavedMatches error", err);
+      console.error("loadSavedMatches", err);
     } finally {
       setLoadingMatches(false);
     }
   }, [date]);
 
-  // initial loads
   useEffect(() => {
     loadPlayers();
     loadHistory();
     loadRatings();
     loadSavedMatches();
   }, [loadPlayers, loadHistory, loadSavedMatches, loadRatings]);
-
-  // persist date to localStorage
   useEffect(() => {
     if (date) window.localStorage.setItem(STORAGE_KEY, date);
   }, [date]);
 
-  // Realtime subscription for matches changes on the selected date
+  // Realtime subscription
   useEffect(() => {
     if (!date) return;
     const channel = supabase
@@ -138,47 +133,31 @@ export default function SchedulePage() {
           table: "matches",
           filter: `match_date=eq.${date}`,
         },
-        () => {
-          loadSavedMatches();
-        },
+        () => loadSavedMatches(),
       )
       .subscribe();
-
     return () => {
       try {
         supabase.removeChannel(channel);
-      } catch (e) {
-        // ignore removal errors
-      }
+      } catch (e) {}
     };
   }, [date, loadSavedMatches]);
 
-  // toggle available selection
   function toggleAvailable(id) {
     setAvailable((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
 
-  //
-  // Actions triggered after user confirms in modal
-  //
-
-  async function handleManualRefresh() {
-    await loadSavedMatches();
-  }
+  // ── Actions ──────────────────────────────────────
   async function _doGenerate() {
-    // parse inputs
     const courts = parsePositiveInt(courtsInput, 1);
     const matchesPerCourt = parsePositiveInt(matchesPerCourtInput, 5);
-
     if (!available || available.length < 4) {
-      alert("Select at least 4 available players");
+      alert("Select at least 4 players");
       return;
     }
-
     try {
-      // generate preview (seeded randomness internal to scheduler)
       const schedule = generateSchedule({
         players: available,
         courts,
@@ -189,14 +168,9 @@ export default function SchedulePage() {
         date,
       });
       setPreview(schedule);
-      // scroll preview into view
-      setTimeout(() => {
-        const el = document.querySelector(".schedule-list");
-        el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-      }, 80);
     } catch (err) {
       console.error("generate error", err);
-      alert("Failed to generate schedule: " + (err.message || err));
+      alert("Failed to generate: " + err.message);
     }
   }
 
@@ -207,7 +181,7 @@ export default function SchedulePage() {
     }
     setLoadingSave(true);
     try {
-      const { data, error } = await saveScheduleToDb(preview, date);
+      const { error } = await saveScheduleToDb(preview, date);
       if (error) throw error;
       await loadSavedMatches();
       setPreview([]);
@@ -215,8 +189,7 @@ export default function SchedulePage() {
       await loadHistory();
       alert("Schedule saved.");
     } catch (err) {
-      console.error("onSaveSchedule error", err);
-      alert("Failed to save schedule: " + (err.message || err));
+      alert("Failed to save: " + err.message);
     } finally {
       setLoadingSave(false);
     }
@@ -224,7 +197,7 @@ export default function SchedulePage() {
 
   async function _doClear() {
     if (!date) {
-      alert("Please select a date first");
+      alert("Select a date first");
       return;
     }
     setClearing(true);
@@ -235,23 +208,17 @@ export default function SchedulePage() {
       setPreview([]);
       setAvailable([]);
       await loadHistory();
-      // window.dispatchEvent(new Event("scores-changed"));
-      alert(
-        `Cleared schedule for ${date}. Removed ${data?.length ?? 0} matches.`,
-      );
+      alert(`Cleared ${data?.length ?? 0} matches for ${date}.`);
     } catch (err) {
-      console.error("onClearSchedule error", err);
-      alert("Failed to clear schedule: " + (err.message || err));
+      alert("Failed to clear: " + err.message);
     } finally {
       setClearing(false);
     }
   }
 
-  // Handlers that open confirm modal
   function handleGenerateConfirm() {
-    // quick validation before opening modal
     if (!available || available.length < 4) {
-      alert("Select at least 4 available players");
+      alert("Select at least 4 players");
       return;
     }
     setModalState({
@@ -263,233 +230,325 @@ export default function SchedulePage() {
   }
   function handleSaveConfirm() {
     if (!preview || preview.length === 0) {
-      alert("No preview available to save. Generate first.");
+      alert("Generate first.");
       return;
     }
     setModalState({ open: true, type: "save", payload: null, loading: false });
   }
   function handleClearConfirm() {
     if (!date) {
-      alert("Please select a date first");
+      alert("Select a date first");
       return;
     }
     setModalState({ open: true, type: "clear", payload: null, loading: false });
   }
-
-  // confirm modal confirm callback
   async function handleModalConfirm() {
-    if (!modalState.type) return;
     setModalState((s) => ({ ...s, loading: true }));
     try {
-      if (modalState.type === "generate") {
-        await _doGenerate();
-      } else if (modalState.type === "save") {
-        await _doSave();
-      } else if (modalState.type === "clear") {
-        await _doClear();
-      }
+      if (modalState.type === "generate") await _doGenerate();
+      else if (modalState.type === "save") await _doSave();
+      else if (modalState.type === "clear") await _doClear();
     } finally {
       setModalState({ open: false, type: null, payload: null, loading: false });
     }
   }
 
+  // ── Round-derived values ─────────────────────────
+  const numCourts = useMemo(() => {
+    const courts = new Set(savedMatches.map((m) => m.court));
+    return courts.size || 1;
+  }, [savedMatches]);
+  const sortedMatches = useMemo(
+    () => [...savedMatches].sort((a, b) => a.match_index - b.match_index),
+    [savedMatches],
+  );
+  const roundMap = useMemo(
+    () => groupByRounds(sortedMatches, numCourts),
+    [sortedMatches, numCourts],
+  );
+  const roundEntries = useMemo(
+    () => Object.entries(roundMap).sort((a, b) => Number(a[0]) - Number(b[0])),
+    [roundMap],
+  );
+
+  const totalGames = savedMatches.length;
+  const doneGames = savedMatches.filter((m) => m.winner?.length > 0).length;
+  const pendingGames = totalGames - doneGames;
+  const totalRounds = roundEntries.length;
+  const doneRounds = roundEntries.filter(([, ms]) =>
+    ms.every((m) => m.winner?.length > 0),
+  ).length;
+  const currentRound = roundEntries.find(([, ms]) =>
+    ms.some((m) => !m.winner?.length),
+  )?.[0];
+  const progressPct =
+    totalGames > 0 ? Math.round((doneGames / totalGames) * 100) : 0;
+
+  const fmtDate = (d) => {
+    if (!d) return "—";
+    return new Date(d + "T00:00:00").toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
   return (
     <div className="container">
-      <header className="header">
-        <div className="brand">
-          <div className="logo">IB</div>
-          <div className="title">Schedule — {date}</div>
+      {/* ── Controls card ── */}
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="card-header">
+          <span className="card-title">📅 Schedule</span>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            {fmtDate(date)}
+          </span>
         </div>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ fontSize: 13, color: "#666" }}>Date:</div>
-          <input
-            className="date-input"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            aria-label="Select match date"
-          />
-        </div>
-      </header>
-
-      <div className="grid">
-        <div>
-          {/* Players + controls card (Generate/Save/Clear moved here) */}
-          <div className="card">
-            <h3>Select Details</h3>
-
-            <div
-              style={{
-                display: "flex",
-                gap: 12,
-                alignItems: "center",
-                marginBottom: 10,
-                flexWrap: "wrap",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <label className="form-label">Courts</label>
-                <input
-                  className="number-input"
-                  type="text"
-                  inputMode="numeric"
-                  value={courtsInput}
-                  onChange={(e) => setCourtsInput(e.target.value)}
-                  placeholder="1"
-                  style={{ minWidth: 70 }}
-                />
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <label className="form-label">Matches/Court</label>
-                <input
-                  className="number-input"
-                  type="text"
-                  inputMode="numeric"
-                  value={matchesPerCourtInput}
-                  onChange={(e) => setMatchesPerCourtInput(e.target.value)}
-                  placeholder="5"
-                  style={{ minWidth: 70 }}
-                />
-              </div>
-
-              <div
-                style={{
-                  marginLeft: "auto",
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                <button
-                  // disabled
-                  className="btn generate"
-                  onClick={handleGenerateConfirm}
-                  //style={{ display: "none" }}
-                >
-                  Generate
-                </button>
-
-                <button
-                  //disabled
-                  className="btn secondary"
-                  // style={{ display: "none" }}
-                  onClick={handleSaveConfirm}
-                  disabled={loadingSave || preview.length === 0}
-                >
-                  {loadingSave ? "Saving..." : "Save"}
-                </button>
-
-                <button
-                  className="btn danger"
-                  onClick={handleClearConfirm}
-                  disabled={clearing}
-                >
-                  {clearing ? "Clearing..." : "Clear Schedule"}
-                </button>
-                <button
-                  className="btn secondary"
-                  onClick={handleManualRefresh}
-                  disabled={loadingMatches}
-                >
-                  {loadingMatches ? "Refreshing..." : "Refresh"}
-                </button>
-              </div>
+        <div className="card-body">
+          {/* Date + counts row */}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <label className="form-label">Date</label>
+              <input
+                className="date-input"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                style={{ width: "100%" }}
+              />
             </div>
-
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {players.map((p) => (
-                <label
-                  key={p.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    minWidth: 140,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={available.includes(p.id)}
-                    onChange={() => toggleAvailable(p.id)}
-                  />
-                  <span>{p.name}</span>
-                </label>
-              ))}
+            <div>
+              <label className="form-label">Courts</label>
+              <input
+                className="number-input"
+                type="text"
+                inputMode="numeric"
+                value={courtsInput}
+                onChange={(e) => setCourtsInput(e.target.value)}
+                style={{ width: 56 }}
+              />
+            </div>
+            <div>
+              <label className="form-label">Rounds</label>
+              <input
+                className="number-input"
+                type="text"
+                inputMode="numeric"
+                value={matchesPerCourtInput}
+                onChange={(e) => setMatchesPerCourtInput(e.target.value)}
+                style={{ width: 56 }}
+              />
             </div>
           </div>
 
-          {/* Preview */}
-          <div className="card" style={{ marginTop: 12 }}>
-            <h3>Preview ({preview.length} matches)</h3>
-            <div className="schedule-list">
-              {preview.length === 0 && (
-                <div style={{ color: "#666" }}>No preview generated yet</div>
+          {/* Progress bar */}
+          {totalGames > 0 && (
+            <div className="round-progress-wrap">
+              <div className="round-progress-stats">
+                <div className="round-progress-badges">
+                  <span className="badge green">{doneGames} done</span>
+                  <span className="badge">{pendingGames} pending</span>
+                  <span className="badge round">
+                    R{doneRounds}/{totalRounds}
+                  </span>
+                </div>
+                <span className="round-progress-pct">{progressPct}%</span>
+              </div>
+              <div className="round-progress-bar">
+                <div
+                  className="round-progress-fill"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Player chips */}
+          <div style={{ marginBottom: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 7,
+              }}
+            >
+              <label className="form-label" style={{ margin: 0 }}>
+                Players
+              </label>
+              <button
+                className="btn small"
+                onClick={() => setAvailable(players.map((p) => p.id))}
+              >
+                All
+              </button>
+              <button className="btn small" onClick={() => setAvailable([])}>
+                None
+              </button>
+              {available.length > 0 && (
+                <span className="badge blue">{available.length} selected</span>
               )}
-              {preview.map((m) => {
-                const n0 = playersMap[m.players[0]] || m.players[0];
-                const n1 = playersMap[m.players[1]] || m.players[1];
-                const n2 = playersMap[m.players[2]] || m.players[2];
-                const n3 = playersMap[m.players[3]] || m.players[3];
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {players.map((p) => {
+                const on = available.includes(p.id);
                 return (
-                  <div key={m.match_index} className="match-card">
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 12 }}
-                    >
-                      <div className="match-index">#{m.match_index}</div>
-                      <div>
-                        <div className="team">
-                          {n0} & {n1}
-                        </div>
-                        <div style={{ color: "#666" }} className="team">
-                          {n2} & {n3}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="hstack">
-                      <div className="court-pill">Court {m.court}</div>
-                      <div className="badge">Round {m.round}</div>
-                    </div>
-                  </div>
+                  <button
+                    key={p.id}
+                    onClick={() => toggleAvailable(p.id)}
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: 20,
+                      border: "1px solid",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      background: on ? "var(--primary-dim)" : "var(--surface)",
+                      color: on ? "var(--primary)" : "var(--muted)",
+                      borderColor: on
+                        ? "var(--primary-border)"
+                        : "var(--border)",
+                    }}
+                  >
+                    {p.name}
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Saved Matches */}
-          <div className="card" style={{ marginTop: 12 }}>
-            <h3>Saved Matches for {date}</h3>
-            <div className="schedule-list">
-              {loadingMatches && (
-                <div style={{ color: "#666" }}>Loading matches...</div>
-              )}
-              {!loadingMatches && savedMatches.length === 0 && (
-                <div>No saved matches</div>
-              )}
-              {savedMatches.map((s) => (
-                <MatchCard
-                  key={s.id}
-                  match={s}
-                  onChange={loadSavedMatches}
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            <button className="btn generate" onClick={handleGenerateConfirm}>
+              ⚡ Generate
+            </button>
+            {preview.length > 0 && (
+              <button
+                className="btn primary"
+                onClick={handleSaveConfirm}
+                disabled={loadingSave}
+              >
+                {loadingSave ? "Saving…" : "💾 Save"}
+              </button>
+            )}
+            {savedMatches.length > 0 && (
+              <button
+                className="btn danger"
+                onClick={handleClearConfirm}
+                disabled={clearing}
+              >
+                {clearing ? "Clearing…" : "🗑 Clear"}
+              </button>
+            )}
+            <button
+              className="btn"
+              onClick={loadSavedMatches}
+              disabled={loadingMatches}
+            >
+              {loadingMatches ? "…" : "↺"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Preview ── */}
+      {preview.length > 0 &&
+        (() => {
+          const previewRounds = groupByRounds(preview, numCourts);
+          const previewEntries = Object.entries(previewRounds).sort(
+            (a, b) => Number(a[0]) - Number(b[0]),
+          );
+          return (
+            <>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--primary)",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.8,
+                  marginBottom: 8,
+                }}
+              >
+                Preview — {preview.length} games · {previewEntries.length}{" "}
+                rounds
+              </div>
+              {previewEntries.map(([r, ms]) => (
+                <PreviewRoundBlock
+                  key={r}
+                  roundNum={r}
+                  roundMatches={ms}
                   playersMap={playersMap}
                 />
               ))}
+            </>
+          );
+        })()}
+
+      {/* ── Saved matches — round blocks ── */}
+      {roundEntries.length > 0 && (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 8,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "var(--muted)",
+                textTransform: "uppercase",
+                letterSpacing: 0.8,
+              }}
+            >
+              {fmtDate(date)}
+            </span>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              {totalGames} games · {totalRounds} rounds
+            </span>
+          </div>
+          {roundEntries.map(([roundNum, roundMatches]) => (
+            <RoundBlock
+              key={roundNum}
+              roundNum={roundNum}
+              roundMatches={roundMatches}
+              currentRound={currentRound}
+              playersMap={playersMap}
+              onChange={loadSavedMatches}
+            />
+          ))}
+        </>
+      )}
+
+      {!preview.length && !savedMatches.length && !loadingMatches && (
+        <div className="card">
+          <div className="empty-state">
+            <div className="empty-icon">🏸</div>
+            <div style={{ fontSize: 13 }}>
+              Select players and generate, or import from GPT.
             </div>
           </div>
         </div>
+      )}
+      {loadingMatches && (
+        <div
+          style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}
+        >
+          Loading…
+        </div>
+      )}
 
-        <aside>
-          <div className="card">
-            <h4>Help</h4>
-            <p style={{ color: "#555", fontSize: 13 }}>
-              Select available players for the date, set courts and matches per
-              court, Generate to preview, then Save to persist. Any user can
-              record winners — the list will update in real time.
-            </p>
-          </div>
-        </aside>
-      </div>
+      <div style={{ height: 16 }} />
 
       <ConfirmModal
         open={modalState.open}
@@ -504,12 +563,10 @@ export default function SchedulePage() {
         }
         message={
           modalState.type === "clear"
-            ? `This will remove all matches and recorded scores for ${date}. This cannot be undone.`
+            ? `Remove all matches and scores for ${date}. Cannot be undone.`
             : modalState.type === "save"
-              ? `Save the generated schedule for ${date}? This will persist matches and allow anyone to record winners.`
-              : modalState.type === "generate"
-                ? `Generate a preview schedule now? This will overwrite the preview shown (does not save data until you press Save).`
-                : ""
+              ? `Save the generated schedule for ${date}?`
+              : `Generate a preview for ${date}? (Does not save until you press Save)`
         }
         onCancel={() =>
           setModalState({
@@ -530,6 +587,142 @@ export default function SchedulePage() {
         cancelLabel="Cancel"
         loading={modalState.loading}
       />
+    </div>
+  );
+}
+
+// ── Round block (saved matches) ────────────────────────────────────────────
+function RoundBlock({
+  roundNum,
+  roundMatches,
+  currentRound,
+  playersMap,
+  onChange,
+}) {
+  const allDone = roundMatches.every((m) => m.winner?.length > 0);
+  const isCurrent = String(roundNum) === String(currentRound);
+  const partDone = roundMatches.filter((m) => m.winner?.length > 0).length;
+
+  return (
+    <div
+      className={`round-block${isCurrent ? " round-current" : ""}${allDone ? " round-done" : ""}`}
+    >
+      {/* Header */}
+      <div className="round-header">
+        <div className="round-header-left">
+          <div className="round-number-circle">{roundNum}</div>
+          <div>
+            <div className="round-title-row">
+              <span className="round-title">Round {roundNum}</span>
+              {isCurrent && (
+                <span className="round-badge-now">● NOW PLAYING</span>
+              )}
+              {allDone && !isCurrent && (
+                <span className="round-badge-done">✓ DONE</span>
+              )}
+            </div>
+            <div className="round-subtitle">
+              {roundMatches.length} game{roundMatches.length !== 1 ? "s" : ""} ·{" "}
+              {partDone}/{roundMatches.length} recorded
+            </div>
+          </div>
+        </div>
+        <span className="round-icon">
+          {allDone ? "✅" : isCurrent ? "🏸" : "⏳"}
+        </span>
+      </div>
+
+      {/* Games row — side by side */}
+      <div className="round-games-row">
+        {[...roundMatches]
+          .sort((a, b) => a.court - b.court)
+          .map((m) => (
+            <div key={m.id} className="round-game-slot">
+              <MatchCard
+                match={m}
+                playersMap={playersMap}
+                onChange={onChange}
+              />
+            </div>
+          ))}
+      </div>
+
+      {/* Resting strip — placeholder until DB field added */}
+      <div className="round-resting-strip">
+        <span className="round-resting-label">☕ Resting</span>
+        <span className="round-resting-value">— coming soon</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Preview round block (read-only) ───────────────────────────────────────
+function PreviewRoundBlock({ roundNum, roundMatches, playersMap }) {
+  const pname = (id) => playersMap[id] || id;
+  return (
+    <div className="round-block" style={{ marginBottom: 8 }}>
+      <div className="round-header">
+        <div className="round-header-left">
+          <div className="round-number-circle">{roundNum}</div>
+          <span className="round-title">Round {roundNum}</span>
+        </div>
+        <span className="badge">preview</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, padding: "10px 10px 10px" }}>
+        {[...roundMatches]
+          .sort((a, b) => a.court - b.court)
+          .map((m) => (
+            <div
+              key={m.match_index}
+              style={{
+                flex: 1,
+                background: "var(--surface2)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                padding: "9px 10px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "var(--muted2)",
+                  }}
+                >
+                  Game #{m.match_index}
+                </span>
+                <span className="badge yellow">Court {m.court}</span>
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "var(--text)",
+                  marginBottom: 2,
+                }}
+              >
+                {pname(m.players?.[0])} & {pname(m.players?.[1])}
+              </div>
+              <div
+                style={{ fontSize: 10, color: "var(--muted)", marginBottom: 2 }}
+              >
+                vs
+              </div>
+              <div
+                style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}
+              >
+                {pname(m.players?.[2])} & {pname(m.players?.[3])}
+              </div>
+            </div>
+          ))}
+      </div>
     </div>
   );
 }

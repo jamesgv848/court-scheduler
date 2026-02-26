@@ -1,6 +1,5 @@
 // src/pages/ScoreboardPage.jsx
-import React, { useEffect, useState, useCallback } from "react";
-import "./ScoreboardPage.css";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   fetchPlayerTotalsOverall,
   fetchPlayerTotalsForDate,
@@ -8,72 +7,59 @@ import {
   exportFullMatchAnalysis,
 } from "../api/supabase-actions";
 
+function normalizeRow(row) {
+  return {
+    id: row.id ?? row.player_id ?? row.name ?? JSON.stringify(row),
+    name: row.name ?? row.player_name ?? "Unknown",
+    matches: Number(row.matches ?? row.total_matches ?? 0),
+    wins: Number(row.wins ?? 0),
+    win_pct: Number(row.win_pct ?? 0),
+  };
+}
+
+const rankColor = (i) =>
+  i === 0
+    ? "#b87000"
+    : i === 1
+      ? "#636e7b"
+      : i === 2
+        ? "#953800"
+        : "var(--muted2)";
+
 export default function ScoreboardPage() {
   const [date, setDate] = useState("");
   const [overall, setOverall] = useState([]);
   const [byDate, setByDate] = useState([]);
-  const [loadingOverall, setLoadingOverall] = useState(false);
-  const [loadingDate, setLoadingDate] = useState(false);
+  const [loadingOverall, setLO] = useState(false);
+  const [loadingDate, setLD] = useState(false);
   const [error, setError] = useState(null);
   const [period, setPeriod] = useState("overall");
+  const [sortKey, setSortKey] = useState("wins");
+  const [sortDir, setSortDir] = useState("desc");
+  const [sortKey2, setSortKey2] = useState("wins");
+  const [sortDir2, setSortDir2] = useState("desc");
 
-  // Normalizer: bring remote row into consistent shape
-  function normalizeRow(row) {
-    return {
-      id:
-        row.id ??
-        row.player_id ??
-        row.player ??
-        row.name ??
-        JSON.stringify(row),
-      name: row.name ?? row.player_name ?? row.player ?? "Unknown",
-      matches: Number(row.matches ?? row.total_matches ?? 0),
-      wins: Number(row.wins ?? 0),
-      points: Number(row.total_points ?? row.points_on_date ?? 0),
-      win_pct: Number(row.win_pct ?? 0),
-    };
-  }
-
-  async function exportScores() {
-    try {
-      const { data, error } = await exportFullMatchAnalysis();
-      if (error) throw error;
-
-      const content =
-        "### GPT ANALYSIS DATA (RAW EXPORT)\n" + JSON.stringify(data);
-
-      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `gpt-match-analysis-${new Date()
-        .toISOString()
-        .slice(0, 10)}.txt`;
-
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Export failed", err);
-      alert("Failed to export analysis data.");
+  function toggleSort(key, cur, setCur, dir, setDir) {
+    if (cur === key) setDir((d) => (d === "desc" ? "asc" : "desc"));
+    else {
+      setCur(key);
+      setDir("desc");
     }
   }
+  const arr = (k, c, d) => (c === k ? (d === "desc" ? " ↓" : " ↑") : "");
 
   const loadPeriodTotals = useCallback(async () => {
-    setLoadingOverall(true);
+    setLO(true);
     setError(null);
     try {
       const { data, error } = await fetchPlayerTotalsForPeriod(period);
       if (error) throw error;
       setOverall((data || []).map(normalizeRow));
     } catch (err) {
-      console.error("loadPeriodTotals error", err);
       setError(err);
       setOverall([]);
     } finally {
-      setLoadingOverall(false);
+      setLO(false);
     }
   }, [period]);
 
@@ -83,27 +69,25 @@ export default function ScoreboardPage() {
         setByDate([]);
         return;
       }
-      setLoadingDate(true);
+      setLD(true);
       setError(null);
       try {
         const { data, error } = await fetchPlayerTotalsForDate(d);
         if (error) throw error;
         setByDate((data || []).map(normalizeRow));
       } catch (err) {
-        console.error("loadByDate error", err);
         setError(err);
         setByDate([]);
       } finally {
-        setLoadingDate(false);
+        setLD(false);
       }
     },
-    [date]
+    [date],
   );
 
   useEffect(() => {
     loadPeriodTotals();
     if (date) loadByDate(date);
-
     const onScoresChanged = () => {
       loadPeriodTotals();
       if (date) loadByDate(date);
@@ -112,50 +96,224 @@ export default function ScoreboardPage() {
     return () => window.removeEventListener("scores-changed", onScoresChanged);
   }, [loadPeriodTotals, loadByDate, date]);
 
-  function onDateChange(e) {
-    const val = e.target.value;
-    setDate(val);
-    if (val) loadByDate(val);
-    else setByDate([]);
+  const sorted1 = useMemo(
+    () =>
+      [...overall].sort((a, b) =>
+        sortDir === "desc" ? b[sortKey] - a[sortKey] : a[sortKey] - b[sortKey],
+      ),
+    [overall, sortKey, sortDir],
+  );
+  const sorted2 = useMemo(
+    () =>
+      [...byDate].sort((a, b) =>
+        sortDir2 === "desc"
+          ? b[sortKey2] - a[sortKey2]
+          : a[sortKey2] - b[sortKey2],
+      ),
+    [byDate, sortKey2, sortDir2],
+  );
+
+  async function exportScores() {
+    try {
+      const { data, error } = await exportFullMatchAnalysis();
+      if (error) throw error;
+      const blob = new Blob(
+        ["### GPT ANALYSIS DATA\n" + JSON.stringify(data)],
+        { type: "text/plain" },
+      );
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `gpt-match-analysis-${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      alert("Export failed.");
+    }
   }
 
-  function clearDate() {
-    setDate("");
-    setByDate([]);
-    setPeriod("overall");
-  }
+  const top = sorted1[0];
 
-  /* ---------- Table (desktop) ---------- */
-  function ScoreTable({ rows }) {
+  // Shared row component
+  function SBRow({ row, i }) {
+    const pct = Math.min(100, Math.max(0, row.win_pct));
     return (
-      <div className="table-wrap" style={{ width: "100%", overflowX: "auto" }}>
-        <table className="paired-table" style={{ width: "100%" }}>
+      <tr
+        style={{
+          background: i % 2 === 0 ? "var(--surface)" : "var(--surface2)",
+        }}
+      >
+        <td
+          style={{
+            padding: "8px 8px",
+            fontWeight: 800,
+            fontSize: 14,
+            color: rankColor(i),
+          }}
+        >
+          {i + 1}
+        </td>
+        <td style={{ padding: "8px 8px", fontWeight: 700, fontSize: 13 }}>
+          {row.name}
+        </td>
+        <td
+          style={{
+            padding: "8px 8px",
+            textAlign: "right",
+            color: "var(--muted)",
+            fontSize: 12,
+          }}
+        >
+          {row.matches}
+        </td>
+        <td
+          style={{
+            padding: "8px 8px",
+            textAlign: "right",
+            fontWeight: 700,
+            color: "var(--success)",
+            fontSize: 12,
+          }}
+        >
+          {row.wins}
+        </td>
+        <td style={{ padding: "8px 8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div className="win-bar">
+              <div className="win-fill" style={{ width: `${pct}%` }} />
+            </div>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "var(--success)",
+                minWidth: 40,
+                textAlign: "right",
+              }}
+            >
+              {row.win_pct.toFixed(1)}%
+            </span>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  // Mobile card row
+  function SBCard({ row, i }) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 12px",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div
+          style={{
+            width: 28,
+            fontWeight: 800,
+            fontSize: 15,
+            color: rankColor(i),
+            flexShrink: 0,
+          }}
+        >
+          {i + 1}
+        </div>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            flexShrink: 0,
+            background: "var(--accent-dim)",
+            border: "1px solid var(--accent-border)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 800,
+            fontSize: 13,
+            color: "var(--accent)",
+          }}
+        >
+          {row.name[0]}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>{row.name}</div>
+          <div style={{ display: "flex", gap: 6, marginTop: 3 }}>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              {row.matches}M
+            </span>
+            <span
+              style={{ fontSize: 11, color: "var(--success)", fontWeight: 700 }}
+            >
+              {row.wins}W
+            </span>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div
+            style={{ fontWeight: 800, fontSize: 15, color: "var(--success)" }}
+          >
+            {row.win_pct.toFixed(1)}%
+          </div>
+          <div
+            style={{
+              width: 60,
+              height: 3,
+              background: "var(--surface3)",
+              borderRadius: 2,
+              marginTop: 4,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${Math.min(100, row.win_pct)}%`,
+                background: "var(--success)",
+                borderRadius: 2,
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function ScoreTable({ rows, sk, setSk, sd, setSd }) {
+    return (
+      <div className="table-wrap">
+        <table className="paired-table">
           <thead>
-            <tr style={{ borderBottom: "1px solid #eee" }}>
-              <th style={{ padding: 8, width: 60 }}>No</th>
-              <th style={{ padding: 8 }}>Player</th>
-              <th style={{ padding: 8, textAlign: "center", width: 90 }}>
-                Matches
+            <tr>
+              <th style={{ width: 36 }}>#</th>
+              <th>Player</th>
+              <th
+                style={{ textAlign: "right", cursor: "pointer" }}
+                onClick={() => toggleSort("matches", sk, setSk, sd, setSd)}
+              >
+                M{arr("matches", sk, sd)}
               </th>
-              <th style={{ padding: 8, textAlign: "center", width: 90 }}>
-                Wins
+              <th
+                style={{ textAlign: "right", cursor: "pointer" }}
+                onClick={() => toggleSort("wins", sk, setSk, sd, setSd)}
+              >
+                W{arr("wins", sk, sd)}
               </th>
-              <th style={{ padding: 8, textAlign: "center", width: 90 }}>
-                Win %
+              <th
+                style={{ cursor: "pointer" }}
+                onClick={() => toggleSort("win_pct", sk, setSk, sd, setSd)}
+              >
+                Win%{arr("win_pct", sk, sd)}
               </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
-              <tr key={r.id ?? idx}>
-                <td style={{ padding: 8 }}>{idx + 1}</td>
-                <td style={{ padding: 8 }}>{r.name}</td>
-                <td style={{ padding: 8, textAlign: "center" }}>{r.matches}</td>
-                <td style={{ padding: 8, textAlign: "center" }}>{r.wins}</td>
-                <td style={{ padding: 8, textAlign: "center" }}>
-                  {r.win_pct.toFixed(2)}%
-                </td>
-              </tr>
+            {rows.map((r, i) => (
+              <SBRow key={r.id} row={r} i={i} />
             ))}
           </tbody>
         </table>
@@ -163,147 +321,185 @@ export default function ScoreboardPage() {
     );
   }
 
-  /* ---------- Mobile cards ---------- */
-  function ScoreCardRows({ rows }) {
-    return (
-      <div>
-        {rows.map((r, idx) => (
-          <div key={r.id ?? idx} className="pair-row-card">
-            <div className="pair-row-grid" style={{ alignItems: "center" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 8,
-                    background: "rgba(11,113,208,0.08)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: 800,
-                  }}
-                >
-                  {idx + 1}
-                </div>
-                <div style={{ fontWeight: 700 }}>{r.name}</div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 12, color: "#666" }}>
-                  {r.matches} matches
-                </div>
-                <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
-                  Wins: {r.wins}
-                </div>
-                <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
-                  Win %: {r.win_pct.toFixed(2)}%
-                </div>
-              </div>
+  return (
+    <div className="container" style={{ paddingTop: 12 }}>
+      {/* Stats strip */}
+      {top && (
+        <div className="stats-strip">
+          <div className="stat-cell">
+            <div className="stat-val">{overall.length}</div>
+            <div className="stat-lbl">Players</div>
+          </div>
+          <div className="stat-cell">
+            <div
+              className="stat-val"
+              style={{ fontSize: 13, color: "var(--success)" }}
+            >
+              {top.name}
+            </div>
+            <div className="stat-lbl">Leader</div>
+          </div>
+          <div className="stat-cell">
+            <div className="stat-val">{top.win_pct.toFixed(0)}%</div>
+            <div className="stat-lbl">Best %</div>
+          </div>
+          <div className="stat-cell">
+            <div className="stat-val" style={{ color: "var(--success)" }}>
+              {top.wins}
+            </div>
+            <div className="stat-lbl">Top Wins</div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="card">
+        <div className="card-body">
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              alignItems: "flex-end",
+              marginBottom: 10,
+            }}
+          >
+            <div>
+              <label className="form-label">Period</label>
+              <select
+                value={period}
+                onChange={(e) => setPeriod(e.target.value)}
+              >
+                <option value="overall">Overall</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+              </select>
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label className="form-label">Date</label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  if (e.target.value) loadByDate(e.target.value);
+                }}
+                style={{ width: "100%" }}
+              />
             </div>
           </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="container" style={{ padding: 12 }}>
-      {/* Date filter */}
-      {/* Header */}
-      <div className="scoreboard-header">
-        {/* Top row */}
-        <div className="scoreboard-header-top">
-          <h3 className="scoreboard-title">Scoreboard</h3>
-
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              exportScores();
-            }}
-            className="scoreboard-export"
+          <div
+            style={{ display: "flex", gap: 8, justifyContent: "space-between" }}
           >
-            Export scores (GPT)
-          </a>
-        </div>
-
-        {/* Filters row */}
-        <div className="scoreboard-header-filters">
-          {/* Period */}
-          <div className="filter-group">
-            <label>Period</label>
-            <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-              <option value="overall">Overall</option>
-              <option value="2025">2025</option>
-              <option value="2026">2026</option>
-            </select>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                className="btn small"
+                onClick={() => loadByDate(date)}
+                disabled={!date}
+              >
+                Show
+              </button>
+              <button
+                className="btn small"
+                onClick={() => {
+                  setDate("");
+                  setByDate([]);
+                }}
+              >
+                Clear
+              </button>
+            </div>
+            <button className="btn small" onClick={exportScores}>
+              📤 Export (GPT)
+            </button>
           </div>
-
-          {/* Date */}
-          <div className="filter-group">
-            <label>Date</label>
-            <input type="date" value={date} onChange={onDateChange} />
-          </div>
-
-          <button
-            className="btn"
-            onClick={() => loadByDate(date)}
-            disabled={!date}
-          >
-            Show
-          </button>
-
-          <button
-            className="btn secondary"
-            onClick={clearDate}
-            disabled={!date && period === "overall"}
-          >
-            Clear
-          </button>
         </div>
       </div>
 
       {error && (
-        <div style={{ marginTop: 12, color: "red" }}>
-          Error: {error.message || JSON.stringify(error)}
+        <div style={{ color: "var(--danger)", marginBottom: 10, fontSize: 13 }}>
+          Error: {error.message}
         </div>
       )}
 
-      <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-        <div className="card">
-          <h4>
+      {/* Overall table */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">
             {period === "overall"
               ? "Overall (all time)"
-              : `Overall – ${period}`}
-          </h4>
-          {loadingOverall && <div>Loading…</div>}
-          {!loadingOverall && overall.length === 0 && <div>No scores yet.</div>}
-          {!loadingOverall && overall.length > 0 && (
-            <>
-              <ScoreTable rows={overall} />
-              <ScoreCardRows rows={overall} />
-            </>
-          )}
+              : `Overall — ${period}`}
+          </span>
+          <span className="badge blue">{overall.length} players</span>
         </div>
+        {loadingOverall && (
+          <div style={{ padding: 12, color: "var(--muted)" }}>Loading…</div>
+        )}
+        {!loadingOverall && sorted1.length === 0 && (
+          <div style={{ padding: 12, color: "var(--muted)" }}>
+            No scores yet.
+          </div>
+        )}
+        {!loadingOverall && sorted1.length > 0 && (
+          <>
+            <ScoreTable
+              rows={sorted1}
+              sk={sortKey}
+              setSk={setSortKey}
+              sd={sortDir}
+              setSd={setSortDir}
+            />
 
-        <div className="card">
-          <h4>{date ? `Scores for ${date}` : "Scores for selected date"}</h4>
-          {date && loadingDate && <div>Loading…</div>}
-          {date && !loadingDate && byDate.length === 0 && (
-            <div>No recorded scores found.</div>
-          )}
-          {date && !loadingDate && byDate.length > 0 && (
-            <>
-              <ScoreTable rows={byDate} />
-              <ScoreCardRows rows={byDate} />
-            </>
-          )}
-          {!date && (
-            <div style={{ color: "#666" }}>
-              Choose a date above to see scores.
+            {/* Mobile card layout */}
+            <div className="mobile-score-list">
+              {sorted1.map((r, i) => (
+                <SBCard key={r.id} row={r} i={i} />
+              ))}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
+
+      {/* By-date table */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">
+            {date ? `Scores — ${date}` : "Scores for selected date"}
+          </span>
+        </div>
+        {!date && (
+          <div style={{ padding: 12, color: "var(--muted)", fontSize: 13 }}>
+            Choose a date above.
+          </div>
+        )}
+        {date && loadingDate && (
+          <div style={{ padding: 12, color: "var(--muted)" }}>Loading…</div>
+        )}
+        {date && !loadingDate && sorted2.length === 0 && (
+          <div style={{ padding: 12, color: "var(--muted)" }}>
+            No scores for this date.
+          </div>
+        )}
+        {date && !loadingDate && sorted2.length > 0 && (
+          <>
+            <ScoreTable
+              rows={sorted2}
+              sk={sortKey2}
+              setSk={setSortKey2}
+              sd={sortDir2}
+              setSd={setSortDir2}
+            />
+
+            {/* Mobile fallback */}
+            <div className="mobile-score-list">
+              {sorted2.map((r, i) => (
+                <SBCard key={r.id} row={r} i={i} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+      <div style={{ height: 16 }} />
     </div>
   );
 }
