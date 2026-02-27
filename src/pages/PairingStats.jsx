@@ -112,12 +112,15 @@ export default function PairingStats() {
           >
             <div style={{ flex: 1, minWidth: 140 }}>
               <label className="form-label">Date</label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                style={{ width: "100%" }}
-              />
+              <div className="date-input-wrap">
+                <span className="date-input-icon">📅</span>
+                <input
+                  className="date-input"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
             </div>
             <button
               className="btn small"

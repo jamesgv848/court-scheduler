@@ -315,13 +315,15 @@ export default function SchedulePage() {
           >
             <div style={{ flex: 1, minWidth: 130 }}>
               <label className="form-label">Date</label>
-              <input
-                className="date-input"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                style={{ width: "100%" }}
-              />
+              <div className="date-input-wrap">
+                <span className="date-input-icon">📅</span>
+                <input
+                  className="date-input"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
             </div>
             <div>
               <label className="form-label">Courts</label>

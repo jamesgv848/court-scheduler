@@ -79,11 +79,16 @@ export default function ImportSchedulePage() {
   }
 
   const placeholder = `{
-  "matches": [
-    { "round": 1, "court": 1, "teamA": ["Ajit","Bikram"],      "teamB": ["Chetan","Hanumant"] },
-    { "round": 1, "court": 2, "teamA": ["Krishna","Nagu"],     "teamB": ["Preetam","Sai"] },
-    { "round": 2, "court": 1, "teamA": ["Sampreet","Vijay"],   "teamB": ["Ajit","Chetan"] }
-  ]
+    "matches": [{
+            "round": 1,
+            "court": 1,
+            "teamA": ["P1", "P2"],"teamB": ["P3", "P4"]
+        }, {
+            "round": 1,
+            "court": 2,
+            "teamA": ["P5", "P6"],"teamB": ["P7", "P8"]
+        }
+    ]
 }`;
 
   return (
@@ -96,13 +101,15 @@ export default function ImportSchedulePage() {
           {/* Date */}
           <div style={{ marginBottom: 14 }}>
             <label className="form-label">Date</label>
-            <input
-              className="date-input"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              style={{ width: "100%" }}
-            />
+            <div className="date-input-wrap">
+              <span className="date-input-icon">📅</span>
+              <input
+                className="date-input"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </div>
           </div>
 
           {/* Clear toggle */}
@@ -179,7 +186,7 @@ export default function ImportSchedulePage() {
               Bikram, Chetan, Hanumant, Krishna, Nagu, Preetam, Sai, Sampreet,
               Vijay. Use 2 courts, 5 rounds per court. Minimise repeat pairings
               and opponents. Output as JSON only, format:
-              {`{ "matches": [ { "round": 1, "court": 1, "teamA": ["P1","P2"], "teamB": ["P3","P4"] } ] }`}
+              {`{"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`}
               "
             </div>
           </details>
