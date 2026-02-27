@@ -49,18 +49,37 @@ export default function ImportSchedulePage() {
       const schedule = parsed.matches.map((m, idx) => {
         if (!m.round || !m.court || !m.teamA || !m.teamB)
           throw new Error(`Invalid match structure at index ${idx}`);
+
         if (m.teamA.length !== 2 || m.teamB.length !== 2)
           throw new Error(
             `Each team must have exactly 2 players (match ${idx + 1})`,
           );
+
         const allNames = [...m.teamA, ...m.teamB];
         const playerIds = allNames.map((n) => nameMap[n.toLowerCase()]);
         const unknown = allNames.filter((n, i) => !playerIds[i]);
+
         if (unknown.length > 0)
           throw new Error(
             `Unknown player(s) in match ${idx + 1}: ${unknown.join(", ")}`,
           );
-        return { court: m.court, round: m.round, players: playerIds };
+
+        let restingIds = null;
+        if (Array.isArray(m.resting)) {
+          restingIds = m.resting.map((n) => nameMap[n.toLowerCase()]);
+          const unknownRest = m.resting.filter((n, i) => !restingIds[i]);
+          if (unknownRest.length > 0)
+            throw new Error(
+              `Unknown resting player(s) in match ${idx + 1}: ${unknownRest.join(", ")}`,
+            );
+        }
+
+        return {
+          court: m.court,
+          round: m.round,
+          players: playerIds,
+          resting: restingIds,
+        };
       });
       if (clearFirst) await deleteScheduleForDate(date);
       await saveScheduleToDb(schedule, date);

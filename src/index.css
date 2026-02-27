@@ -964,11 +964,20 @@ textarea:focus {
 
 .round-games-row {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
   padding: 10px;
   background: var(--bg);
 }
+
+.round-games-row:has(> :only-child) {
+  grid-template-columns: 1fr;
+}
+
+/* If 2 or more matches → 2 columns */
+.round-games-row:not(:has(> :only-child)) {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .round-game-slot {
   width: 100%;
   min-width: 0;

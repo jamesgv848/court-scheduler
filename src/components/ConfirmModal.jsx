@@ -29,7 +29,8 @@ export default function ConfirmModal({
         inset: 0,
         background: "rgba(0,0,0,.35)",
         display: "flex",
-        alignItems: "flex-end",
+        alignItems: "center",
+        justifyContent: "center",
         zIndex: 2000,
         padding: 0,
       }}
@@ -38,25 +39,16 @@ export default function ConfirmModal({
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
+          maxWidth: 480,
           background: "#fff",
-          borderRadius: "16px 16px 0 0",
+          borderRadius: "16px",
           padding: 20,
-          boxShadow: "0 -8px 32px rgba(0,0,0,.12)",
+          boxShadow: "0 20px 60px rgba(0,0,0,.2)", // nicer centered shadow
           border: "1px solid var(--border)",
-          maxWidth: 600,
           margin: "0 auto",
         }}
       >
         {/* Drag handle */}
-        <div
-          style={{
-            width: 36,
-            height: 3,
-            background: "var(--border2)",
-            borderRadius: 2,
-            margin: "0 auto 16px",
-          }}
-        />
 
         {/* Title */}
         <h3

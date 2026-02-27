@@ -153,21 +153,47 @@ export default function SchedulePage() {
   async function _doGenerate() {
     const courts = parsePositiveInt(courtsInput, 1);
     const matchesPerCourt = parsePositiveInt(matchesPerCourtInput, 5);
+
     if (!available || available.length < 4) {
       alert("Select at least 4 players");
       return;
     }
+
     try {
-      const schedule = generateSchedule({
+      const rawSchedule = generateSchedule({
         players: available,
         courts,
         matchesPerCourt,
-        pairingHistory: pairingMap,
-        opponentHistory: opponentMap,
-        ratings: ratingsMap,
-        date,
       });
-      setPreview(schedule);
+
+      // 🟢 Build resting per round (efficient version)
+      const roundsMap = {};
+
+      rawSchedule.forEach((m) => {
+        if (!roundsMap[m.round]) {
+          roundsMap[m.round] = {
+            matches: [],
+            played: new Set(),
+          };
+        }
+        roundsMap[m.round].matches.push(m);
+        m.players.forEach((p) => roundsMap[m.round].played.add(p));
+      });
+
+      const enriched = [];
+
+      Object.entries(roundsMap).forEach(([round, data]) => {
+        const resting = available.filter((p) => !data.played.has(p));
+
+        data.matches.forEach((m) => {
+          enriched.push({
+            ...m,
+            resting: resting.length ? resting : null,
+          });
+        });
+      });
+
+      setPreview(enriched);
     } catch (err) {
       console.error("generate error", err);
       alert("Failed to generate: " + err.message);
@@ -652,7 +678,17 @@ function RoundBlock({
       {/* Resting strip — placeholder until DB field added */}
       <div className="round-resting-strip">
         <span className="round-resting-label">☕ Resting</span>
-        <span className="round-resting-value">— coming soon</span>
+        {(() => {
+          const resting = roundMatches[0]?.resting_player_ids || [];
+          if (!resting || resting.length === 0) {
+            return <span className="round-resting-value">—</span>;
+          }
+          return (
+            <span className="round-resting-value">
+              {resting.map((id) => playersMap[id]).join(", ")}
+            </span>
+          );
+        })()}
       </div>
     </div>
   );

@@ -120,7 +120,7 @@ export function generateSchedule({
       const first = pickWithScore(pool, (p) =>
         consecutivePlayCount[p] >= MAX_CONSECUTIVE_PLAYS
           ? CONSECUTIVE_PLAY_PENALTY
-          : 0
+          : 0,
       );
 
       const second = pickWithScore(
@@ -138,7 +138,7 @@ export function generateSchedule({
             score += 1000; // hard discourage
           }
           return score;
-        }
+        },
       );
 
       const remaining = pool.filter((p) => ![first, second].includes(p));
@@ -147,12 +147,12 @@ export function generateSchedule({
         remaining,
         (p) =>
           opponentPenalty(first, p, opponentHistory) +
-          opponentPenalty(second, p, opponentHistory)
+          opponentPenalty(second, p, opponentHistory),
       );
 
       const fourth = pickWithScore(
         remaining.filter((p) => p !== third),
-        (p) => teammatePenalty(third, p, pairingHistory)
+        (p) => teammatePenalty(third, p, pairingHistory),
       );
 
       const arrangements = [
@@ -186,7 +186,7 @@ export function generateSchedule({
             restCount[a],
             restCount[b],
             restCount[c],
-            restCount[d]
+            restCount[d],
           );
           [a, b, c, d].forEach((p) => {
             if (restCount[p] > minRest) penalty += NO_DOUBLE_REST_PENALTY;
@@ -228,11 +228,11 @@ export function generateSchedule({
       const [a, b, c, d] = best;
       pairUsage.set(
         canonicalPairKey(a, b),
-        (pairUsage.get(canonicalPairKey(a, b)) || 0) + 1
+        (pairUsage.get(canonicalPairKey(a, b)) || 0) + 1,
       );
       pairUsage.set(
         canonicalPairKey(c, d),
-        (pairUsage.get(canonicalPairKey(c, d)) || 0) + 1
+        (pairUsage.get(canonicalPairKey(c, d)) || 0) + 1,
       );
     }
 

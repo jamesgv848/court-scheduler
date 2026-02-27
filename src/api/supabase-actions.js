@@ -33,12 +33,19 @@ export async function saveScheduleToDb(schedule, matchDate) {
         ? resp.data.match_index
         : 0;
 
+    const restingByRound = new Map();
+    schedule.forEach((s) => {
+      if (s.round && s.resting) {
+        restingByRound.set(s.round, s.resting);
+      }
+    });
     // 2) create rows with incremented match_index starting after currentMax
     const rows = schedule.map((s, idx) => ({
       match_date: dateStr,
       court: s.court,
       match_index: currentMax + idx + 1,
       player_ids: s.players,
+      resting_player_ids: restingByRound.get(s.round) || null,
       winner: null,
       created_at: new Date().toISOString(),
     }));
@@ -527,7 +534,7 @@ export async function updateMatchPlayers(matchId, playerIds) {
 
   const { data, error } = await supabase
     .from("matches")
-    .update({ player_ids: playerIds })
+    .update({ player_ids: playerIds, resting_player_ids: null })
     .eq("id", matchId)
     .select("*")
     .single();
