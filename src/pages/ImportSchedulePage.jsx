@@ -101,7 +101,8 @@ export default function ImportSchedulePage() {
     "matches": [{
             "round": 1,
             "court": 1,
-            "teamA": ["P1", "P2"],"teamB": ["P3", "P4"]
+            "teamA": ["P1", "P2"],"teamB": ["P3", "P4"],
+            "resting": ["P9","P10"]
         }, {
             "round": 1,
             "court": 2,
@@ -203,9 +204,10 @@ export default function ImportSchedulePage() {
               <br />
               "Create a badminton doubles schedule for these players: Ajit,
               Bikram, Chetan, Hanumant, Krishna, Nagu, Preetam, Sai, Sampreet,
-              Vijay. Use 2 courts, 5 rounds per court. Minimise repeat pairings
-              and opponents. Output as JSON only, format:
-              {`{"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`}
+              Vijay. Use 2 courts, 5 rounds per court. Minimise repeat pairings.
+              Resting player need to be mentioned only once per round. and
+              opponents. Output as JSON only, format:
+              {`{"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"],"resting": ["P9","P10"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`}
               "
             </div>
           </details>
