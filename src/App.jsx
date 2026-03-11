@@ -16,6 +16,7 @@ import PairingStats from "./pages/PairingStats";
 import FixedPairsSchedulePage from "./pages/FixedPairsSchedulePage";
 import RegisterMatchPage from "./pages/RegisterMatchPage";
 import ImportSchedulePage from "./pages/ImportSchedulePage";
+import PlayerProfilePage from "./pages/PlayerProfilePage";
 import { supabase } from "./supabaseClient";
 
 // Bottom nav tabs — primary (always visible) and more (in popup)
@@ -146,6 +147,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <PlayersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/players/:playerId"
+            element={
+              <ProtectedRoute>
+                <PlayerProfilePage />
               </ProtectedRoute>
             }
           />

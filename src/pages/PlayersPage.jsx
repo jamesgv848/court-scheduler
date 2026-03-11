@@ -1,29 +1,14 @@
 // src/pages/PlayersPage.jsx
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabaseClient";
-
-function initials(name) {
-  return name
-    .split(" ")
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
-const AVATAR_COLORS = [
-  ["#c44d00", "rgba(196,77,0,.12)"],
-  ["#0969da", "rgba(9,105,218,.12)"],
-  ["#1a7f37", "rgba(26,127,55,.12)"],
-  ["#7d4e00", "rgba(125,78,0,.12)"],
-  ["#6e40c9", "rgba(110,64,201,.12)"],
-];
 
 export default function PlayersPage() {
   const [players, setPlayers] = useState([]);
   const [newName, setNewName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [deleteId, setDeleteId] = useState(null); // confirm delete
+  const [deleteId, setDeleteId] = useState(null); // inline confirm state
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadPlayers();
@@ -53,6 +38,7 @@ export default function PlayersPage() {
       setNewName("");
       await loadPlayers();
     } catch (err) {
+      console.error(err);
       alert("Failed to add player: " + err.message);
     } finally {
       setLoading(false);
@@ -69,14 +55,25 @@ export default function PlayersPage() {
     await loadPlayers();
   }
 
+  function formatDate(d) {
+    if (!d) return null;
+    return new Date(d).toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
   return (
-    <div className="container" style={{ paddingTop: 12 }}>
-      {/* Add player */}
-      <div className="card" style={{ marginBottom: 12 }}>
+    <div className="container">
+      <div className="card">
+        {/* ── Header ──────────────────────────────────── */}
         <div className="card-header">
           <span className="card-title">👥 Players</span>
           <span className="badge blue">{players.length} players</span>
         </div>
+
+        {/* ── Add player ──────────────────────────────── */}
         <div className="card-body">
           <form onSubmit={addPlayer} style={{ display: "flex", gap: 8 }}>
             <input
@@ -84,53 +81,49 @@ export default function PlayersPage() {
               value={newName}
               placeholder="Enter player name…"
               onChange={(e) => setNewName(e.target.value)}
-              style={{
-                flex: 1,
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                fontSize: 13,
-                background: "var(--surface)",
-                outline: "none",
-                fontFamily: "inherit",
-              }}
+              style={{ flex: 1 }}
             />
             <button
-              type="submit"
               className="btn primary"
+              type="submit"
               disabled={loading || !newName.trim()}
             >
               {loading ? "Adding…" : "+ Add"}
             </button>
           </form>
         </div>
-      </div>
 
-      {/* Player list */}
-      <div className="card" style={{ overflow: "hidden" }}>
-        {players.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-icon">👥</div>
-            <div style={{ fontSize: 13 }}>No players yet. Add one above.</div>
-          </div>
-        )}
-        {players.map((p, i) => {
-          const [fg, bg] = AVATAR_COLORS[i % AVATAR_COLORS.length];
-          return (
-            <div key={p.id} className="player-item">
-              <div
-                className="player-avatar"
-                style={{
-                  color: fg,
-                  background: bg,
-                  borderColor: "transparent",
-                }}
-              >
-                {initials(p.name)}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
-                {p.last_played && (
+        {/* ── Player list ─────────────────────────────── */}
+        <div style={{ borderTop: "1px solid var(--border)" }}>
+          {players.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon">👥</div>
+              <div style={{ fontSize: 13 }}>No players yet. Add one above.</div>
+            </div>
+          )}
+
+          {players.map((p) => (
+            <div
+              key={p.id}
+              className="score-row"
+              style={{
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "10px 12px",
+              }}
+            >
+              {/* Left: name + last played */}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 14,
+                    color: "var(--text)",
+                  }}
+                >
+                  {p.name}
+                </div>
+                {p.last_played ? (
                   <div
                     style={{
                       fontSize: 11,
@@ -138,65 +131,96 @@ export default function PlayersPage() {
                       marginTop: 1,
                     }}
                   >
-                    Last played:{" "}
-                    {new Date(p.last_played).toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    })}
+                    Last played: {formatDate(p.last_played)}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--muted2)",
+                      marginTop: 1,
+                    }}
+                  >
+                    No games yet
                   </div>
                 )}
               </div>
+
+              {/* Right: icon buttons OR inline delete confirm */}
               {deleteId === p.id ? (
-                <div style={{ display: "flex", gap: 6 }}>
+                /* Inline confirm — same pattern as original PlayersPage */
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    alignItems: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "var(--danger)",
+                      marginRight: 2,
+                    }}
+                  >
+                    Remove?
+                  </span>
                   <button
                     className="btn small danger"
                     onClick={() => deletePlayer(p.id)}
                   >
-                    Confirm
+                    Yes
                   </button>
                   <button
                     className="btn small"
                     onClick={() => setDeleteId(null)}
                   >
-                    Cancel
+                    No
                   </button>
                 </div>
               ) : (
-                <button
-                  className="btn small"
-                  style={{
-                    color: "var(--danger)",
-                    borderColor: "var(--danger-border)",
-                    background: "var(--danger-dim)",
-                  }}
-                  onClick={() => setDeleteId(p.id)}
-                >
-                  Remove
-                </button>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  {/* Profile icon button */}
+                  <button
+                    className="footer-icon-btn"
+                    title={`View ${p.name}'s profile`}
+                    onClick={() => navigate(`/players/${p.id}`)}
+                    style={{ fontSize: 16 }}
+                  >
+                    👤
+                  </button>
+                  {/* Delete icon button */}
+                  <button
+                    className="footer-icon-btn danger"
+                    title={`Remove ${p.name}`}
+                    onClick={() => setDeleteId(p.id)}
+                    style={{ fontSize: 16 }}
+                  >
+                    🗑
+                  </button>
+                </div>
               )}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
 
-      <div
-        style={{
-          marginTop: 12,
-          padding: "10px 12px",
-          borderRadius: 8,
-          background: "var(--surface2)",
-          border: "1px solid var(--border)",
-          fontSize: 12,
-          color: "var(--muted)",
-          lineHeight: 1.6,
-        }}
-      >
-        ⚠️ Removing a player does not delete their historical match data — it
-        only removes them from the roster.
+        {/* ── Footer note ─────────────────────────────── */}
+        <div
+          style={{
+            margin: "0 12px 12px",
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "var(--surface2)",
+            border: "1px solid var(--border)",
+            fontSize: 11,
+            color: "var(--muted)",
+            lineHeight: 1.5,
+          }}
+        >
+          ⚠️ Removing a player does not delete their historical match data.
+        </div>
       </div>
-
-      <div style={{ height: 16 }} />
     </div>
   );
 }

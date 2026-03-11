@@ -65,7 +65,7 @@ export default function ImportSchedulePage() {
           );
 
         let restingIds = null;
-        if (Array.isArray(m.resting)) {
+        if (Array.isArray(m.resting) && m.resting.length > 0) {
           restingIds = m.resting.map((n) => nameMap[n.toLowerCase()]);
           const unknownRest = m.resting.filter((n, i) => !restingIds[i]);
           if (unknownRest.length > 0)
