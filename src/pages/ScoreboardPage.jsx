@@ -1,5 +1,6 @@
 // src/pages/ScoreboardPage.jsx
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   fetchPlayerTotalsOverall,
   fetchPlayerTotalsForDate,
@@ -26,7 +27,23 @@ const rankColor = (i) =>
         ? "#953800"
         : "var(--muted2)";
 
+// Dotted underline on names — unobtrusive, clearly tappable
+const nameLinkStyle = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  textAlign: "left",
+  textDecoration: "underline",
+  textDecorationColor: "rgba(0,0,0,0.2)",
+  textDecorationStyle: "dotted",
+  textUnderlineOffset: 3,
+};
+
 export default function ScoreboardPage() {
+  const navigate = useNavigate();
+
   const [date, setDate] = useState("");
   const [overall, setOverall] = useState([]);
   const [byDate, setByDate] = useState([]);
@@ -134,9 +151,17 @@ export default function ScoreboardPage() {
 
   const top = sorted1[0];
 
-  // Shared row component
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  // A row.id is a valid UUID (linkable) when it looks like a UUID —
+  // i.e. not a name string (which would contain spaces or be short).
+  function isUUID(id) {
+    return id && /^[0-9a-f-]{36}$/i.test(id);
+  }
+
+  // ── Desktop table row ─────────────────────────────────────────────────────
   function SBRow({ row, i }) {
     const pct = Math.min(100, Math.max(0, row.win_pct));
+    const canLink = isUUID(row.id);
     return (
       <tr
         style={{
@@ -154,7 +179,22 @@ export default function ScoreboardPage() {
           {i + 1}
         </td>
         <td style={{ padding: "8px 8px", fontWeight: 700, fontSize: 13 }}>
-          {row.name}
+          {canLink ? (
+            <button
+              style={{
+                ...nameLinkStyle,
+                fontWeight: 700,
+                fontSize: 13,
+                color: "var(--text)",
+              }}
+              onClick={() => navigate(`/players/${row.id}?from=scoreboard`)}
+              title={`View ${row.name}'s profile`}
+            >
+              {row.name}
+            </button>
+          ) : (
+            row.name
+          )}
         </td>
         <td
           style={{
@@ -199,8 +239,14 @@ export default function ScoreboardPage() {
     );
   }
 
-  // Mobile card row
+  // ── Mobile card row ───────────────────────────────────────────────────────
+  // Avatar circle + name both navigate to profile on tap
   function SBCard({ row, i }) {
+    const canLink = isUUID(row.id);
+    const goProfile = () => {
+      if (canLink) navigate(`/players/${row.id}?from=scoreboard`);
+    };
+
     return (
       <div
         style={{
@@ -211,6 +257,7 @@ export default function ScoreboardPage() {
           borderBottom: "1px solid var(--border)",
         }}
       >
+        {/* Rank */}
         <div
           style={{
             width: 28,
@@ -222,7 +269,10 @@ export default function ScoreboardPage() {
         >
           {i + 1}
         </div>
+
+        {/* Avatar — tappable */}
         <div
+          onClick={goProfile}
           style={{
             width: 36,
             height: 36,
@@ -236,12 +286,30 @@ export default function ScoreboardPage() {
             fontWeight: 800,
             fontSize: 13,
             color: "var(--accent)",
+            cursor: canLink ? "pointer" : "default",
           }}
+          title={canLink ? `View ${row.name}'s profile` : undefined}
         >
           {row.name[0]}
         </div>
+
+        {/* Name + stats */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13 }}>{row.name}</div>
+          {canLink ? (
+            <button
+              style={{
+                ...nameLinkStyle,
+                fontWeight: 700,
+                fontSize: 13,
+                color: "var(--text)",
+              }}
+              onClick={goProfile}
+            >
+              {row.name}
+            </button>
+          ) : (
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{row.name}</div>
+          )}
           <div style={{ display: "flex", gap: 6, marginTop: 3 }}>
             <span style={{ fontSize: 11, color: "var(--muted)" }}>
               {row.matches}M
@@ -253,6 +321,8 @@ export default function ScoreboardPage() {
             </span>
           </div>
         </div>
+
+        {/* Win % + bar */}
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div
             style={{ fontWeight: 800, fontSize: 15, color: "var(--success)" }}
@@ -452,8 +522,6 @@ export default function ScoreboardPage() {
               sd={sortDir}
               setSd={setSortDir}
             />
-
-            {/* Mobile card layout */}
             <div className="mobile-score-list">
               {sorted1.map((r, i) => (
                 <SBCard key={r.id} row={r} i={i} />
@@ -492,8 +560,6 @@ export default function ScoreboardPage() {
               sd={sortDir2}
               setSd={setSortDir2}
             />
-
-            {/* Mobile fallback */}
             <div className="mobile-score-list">
               {sorted2.map((r, i) => (
                 <SBCard key={r.id} row={r} i={i} />
@@ -502,6 +568,7 @@ export default function ScoreboardPage() {
           </>
         )}
       </div>
+
       <div style={{ height: 16 }} />
     </div>
   );

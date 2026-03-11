@@ -11,7 +11,7 @@
 //   5. Recent matches        → matches + scores, last 10 the player appeared in
 //
 import React, { useEffect, useState, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../supabaseClient";
 import {
   fetchPlayerTotalsOverall,
@@ -143,6 +143,12 @@ function Sparkline({ sessions }) {
 export default function PlayerProfilePage() {
   const { playerId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Determine where the back button should go based on ?from= query param
+  const fromParam = new URLSearchParams(location.search).get("from");
+  const backTo = fromParam === "scoreboard" ? "/scoreboard" : "/players";
+  const backLabel = fromParam === "scoreboard" ? "← Scoreboard" : "← Players";
 
   const [player, setPlayer] = useState(null);
   const [overall, setOverall] = useState(null); // { matches, wins, win_pct }
@@ -360,7 +366,7 @@ export default function PlayerProfilePage() {
           <p style={{ color: "#cf222e" }}>{error || "Player not found."}</p>
           <button
             className="btn secondary"
-            onClick={() => navigate("/players")}
+            onClick={() => navigate(backTo)}
             style={{ marginTop: 12 }}
           >
             ← Back to Players
@@ -390,10 +396,10 @@ export default function PlayerProfilePage() {
       <div style={{ marginBottom: 10 }}>
         <button
           className="btn small secondary"
-          onClick={() => navigate("/players")}
+          onClick={() => navigate(backTo)}
           style={{ fontSize: 12 }}
         >
-          ← Players
+          {backLabel}
         </button>
       </div>
 
