@@ -158,6 +158,47 @@ export default function ScoreboardPage() {
     return id && /^[0-9a-f-]{36}$/i.test(id);
   }
 
+  // ── Sort bar — shown inside card header, works on both mobile and desktop ──
+  // sk = current sort key, setSk = setter, sd = current dir, setSd = dir setter
+  function SortBar({ sk, setSk, sd, setSd }) {
+    const btns = [
+      { key: "matches", label: "M", title: "Sort by matches played" },
+      { key: "wins", label: "W", title: "Sort by wins" },
+      { key: "win_pct", label: "Win%", title: "Sort by win percentage" },
+    ];
+    return (
+      <div style={{ display: "flex", gap: 4 }}>
+        {btns.map(({ key, label, title }) => {
+          const active = sk === key;
+          const arrow = active ? (sd === "desc" ? " ↓" : " ↑") : "";
+          return (
+            <button
+              key={key}
+              title={title}
+              onClick={() => toggleSort(key, sk, setSk, sd, setSd)}
+              style={{
+                padding: "3px 7px",
+                borderRadius: 6,
+                border: "1px solid",
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                background: active ? "var(--accent-dim)" : "var(--surface)",
+                color: active ? "var(--accent)" : "var(--muted)",
+                borderColor: active ? "var(--accent-border)" : "var(--border)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {label}
+              {arrow}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   // ── Desktop table row ─────────────────────────────────────────────────────
   function SBRow({ row, i }) {
     const pct = Math.min(100, Math.max(0, row.win_pct));
@@ -503,7 +544,15 @@ export default function ScoreboardPage() {
               ? "Overall (all time)"
               : `Overall — ${period}`}
           </span>
-          <span className="badge blue">{overall.length} players</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <SortBar
+              sk={sortKey}
+              setSk={setSortKey}
+              sd={sortDir}
+              setSd={setSortDir}
+            />
+            <span className="badge blue">{overall.length} players</span>
+          </div>
         </div>
         {loadingOverall && (
           <div style={{ padding: 12, color: "var(--muted)" }}>Loading…</div>
@@ -537,6 +586,14 @@ export default function ScoreboardPage() {
           <span className="card-title">
             {date ? `Scores — ${date}` : "Scores for selected date"}
           </span>
+          {date && sorted2.length > 0 && (
+            <SortBar
+              sk={sortKey2}
+              setSk={setSortKey2}
+              sd={sortDir2}
+              setSd={setSortDir2}
+            />
+          )}
         </div>
         {!date && (
           <div style={{ padding: 12, color: "var(--muted)", fontSize: 13 }}>

@@ -7,6 +7,7 @@ import {
   useLocation,
   Navigate,
 } from "react-router-dom";
+import BadmintonLogo from "./components/BadmintonLogo";
 import SchedulePage from "./pages/SchedulePage";
 import ScoreboardPage from "./pages/ScoreboardPage";
 import PlayersPage from "./pages/PlayersPage";
@@ -86,9 +87,9 @@ export default function App() {
       {/* ── Top header bar ── */}
       <header className="app-header">
         <div className="header-left">
-          <div className="logo">🏸</div>
+          <BadmintonLogo size={28} />
           <span className="brand-name">
-            Court<span>Sync</span>
+            Intense<span>Badminton</span>
           </span>
         </div>
         <div className="header-right">

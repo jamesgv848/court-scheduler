@@ -10,7 +10,6 @@ import {
 export default function MatchCard({ match, playersMap, onChange }) {
   const [busy, setBusy] = useState(false);
 
-  // FIX 5: keep prevScoreInput for the smart-dash logic, but start BLANK (not "21-")
   const [scoreInput, setScoreInput] = useState("");
   const [prevScoreInput, setPrevScoreInput] = useState("");
 
@@ -42,57 +41,26 @@ export default function MatchCard({ match, playersMap, onChange }) {
   // ── Score validation ────────────────────────────
   function validateMatchScore(scoreText) {
     if (!scoreText) return null;
-
     const sets = scoreText
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-
-    if (sets.length === 0) {
-      return "Invalid score format";
-    }
-
+    if (sets.length === 0) return "Invalid score format";
     for (const set of sets) {
-      if (!/^\d{1,2}-\d{1,2}$/.test(set)) {
+      if (!/^\d{1,2}-\d{1,2}$/.test(set))
         return "Each set must look like 21-18";
-      }
-
       const [winner, loser] = set.split("-").map(Number);
-
-      // Winner must be >= loser
-      if (winner <= loser) {
-        return "Score must be written as winner-loser";
-      }
-
-      // Minimum winning score
-      if (winner < 21) {
-        return "Winning score must be at least 21";
-      }
-
-      // Max cap
-      if (winner > 30) {
-        return "Maximum score allowed is 30";
-      }
-
-      // Normal win before 29-29
-      if (winner < 30) {
-        if (winner - loser < 2) {
-          return "Set must be won by at least 2 points";
-        }
-      }
-
-      // Special 30-29 case
-      if (winner === 30 && loser !== 29) {
+      if (winner <= loser) return "Score must be written as winner-loser";
+      if (winner < 21) return "Winning score must be at least 21";
+      if (winner > 30) return "Maximum score allowed is 30";
+      if (winner < 30 && winner - loser < 2)
+        return "Set must be won by at least 2 points";
+      if (winner === 30 && loser !== 29)
         return "At 29-29, next point wins (30-29)";
-      }
     }
-
     return null;
   }
 
-  // FIX 5: Restored original smart-dash logic from original MatchCard.
-  // Works exactly as before: type "21" → becomes "21-", then type "15" → "21-15".
-  // No pre-fill "21-" on open, no onFocus select() which was wiping the value.
   function handleScoreChange(e) {
     let v = e.target.value;
     if (!v) {
@@ -103,11 +71,9 @@ export default function MatchCard({ match, playersMap, onChange }) {
     v = v.replace(/[^\d-,]/g, "");
     const isDeleting = v.length < prevScoreInput.length;
     const parts = v.split(",");
-    // reject if any segment has 2+ hyphens
     if (parts.some((p) => (p.match(/-/g) || []).length > 1)) return;
     if (!isDeleting) {
       const last = parts[parts.length - 1];
-      // auto-insert dash after 2 digits in a segment
       if (last.length === 2 && !last.includes("-")) {
         parts[parts.length - 1] = last + "-";
         v = parts.join(",");
@@ -121,7 +87,6 @@ export default function MatchCard({ match, playersMap, onChange }) {
   function openWinnerConfirm(team) {
     if (hasWinner || busy) return;
     setPendingTeam(team);
-    // FIX 5: start blank — no pre-fill that fights the user
     setScoreInput("21-");
     setPrevScoreInput("21-");
     setWinnerOpen(true);
@@ -131,15 +96,7 @@ export default function MatchCard({ match, playersMap, onChange }) {
     if (!pendingTeam) return;
     let normalized =
       scoreInput && scoreInput.trim() === "21-" ? "" : scoreInput.trim();
-
-    // remove trailing comma only
-    if (normalized.endsWith(",")) {
-      normalized = normalized.slice(0, -1);
-    }
-
-    // If user manually leaves trailing dash like "22-",
-    // let validation handle it (do NOT auto-fix it)
-
+    if (normalized.endsWith(",")) normalized = normalized.slice(0, -1);
     if (normalized) {
       const err = validateMatchScore(normalized);
       if (err) {
@@ -147,7 +104,6 @@ export default function MatchCard({ match, playersMap, onChange }) {
         return;
       }
     }
-
     setBusy(true);
     try {
       const { error } = await recordTeamWinner(
@@ -307,14 +263,6 @@ export default function MatchCard({ match, playersMap, onChange }) {
           </button>
         </div>
 
-        {/*
-          FIX 1-4: Compact single-row footer that NEVER wraps.
-          Structure: [left: status icon + score] [right: action icon(s)]
-          - No text in status — icon only (✓ green / ⏳)
-          - Score sits inline next to status
-          - Action buttons are icon-only, fixed size, no text
-          - flex-nowrap + flex-shrink:0 on all children = guaranteed single row
-        */}
         <div className="match-footer">
           <div className="footer-left">
             {hasWinner ? (
@@ -390,7 +338,6 @@ export default function MatchCard({ match, playersMap, onChange }) {
               {pendingTeam?.map(nameOf).join(" & ")}
             </div>
           </div>
-
           <div style={{ marginBottom: 18 }}>
             <div
               style={{
@@ -405,7 +352,6 @@ export default function MatchCard({ match, playersMap, onChange }) {
             >
               Score (optional)
             </div>
-            {/* FIX 5: blank start, smart-dash works, NO onFocus select */}
             <input
               type="text"
               inputMode="numeric"
@@ -440,7 +386,6 @@ export default function MatchCard({ match, playersMap, onChange }) {
               Type 21 → dash appears · e.g. 21-15 or 21-15,22-20
             </div>
           </div>
-
           <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn"
@@ -558,8 +503,10 @@ export default function MatchCard({ match, playersMap, onChange }) {
             { label: "Team B · P1", idx: 2, isA: false },
             { label: "Team B · P2", idx: 3, isA: false },
           ];
-          const takenExcept = (idx) =>
-            editPlayers.filter((_, i) => i !== idx).filter(Boolean);
+          // Warn if any two slots have the same player — but do NOT disable any options.
+          // All players in playersMap are always available in every dropdown so that
+          // full team reshuffles (e.g. moving a player from one team to the other) work
+          // without restriction. The editor is responsible for valid selections.
           const hasDupe = new Set(editPlayers.filter(Boolean)).size < 4;
           return (
             <Dialog onClose={() => !busy && setEditOpen(false)}>
@@ -583,59 +530,51 @@ export default function MatchCard({ match, playersMap, onChange }) {
                   marginBottom: 12,
                 }}
               >
-                {slots.map(({ label, idx, isA }) => {
-                  const taken = takenExcept(idx);
-                  return (
-                    <div key={idx}>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: 9,
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: 0.5,
-                          marginBottom: 4,
-                          color: isA ? "var(--primary)" : "var(--success)",
-                        }}
-                      >
-                        {label}
-                      </label>
-                      <select
-                        value={editPlayers[idx] || ""}
-                        onChange={(e) => {
-                          const next = [...editPlayers];
-                          next[idx] = e.target.value;
-                          setEditPlayers(next);
-                        }}
-                        style={{
-                          width: "100%",
-                          padding: "6px 8px",
-                          borderRadius: 7,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          outline: "none",
-                          fontFamily: "inherit",
-                          background: isA
-                            ? "var(--primary-dim)"
-                            : "var(--success-dim)",
-                          border: `1px solid ${isA ? "var(--primary-border)" : "var(--success-border)"}`,
-                          color: "var(--text)",
-                        }}
-                      >
-                        {Object.entries(playersMap).map(([id, name]) => (
-                          <option
-                            key={id}
-                            value={id}
-                            disabled={taken.includes(id)}
-                          >
-                            {name}
-                            {taken.includes(id) ? " ✗" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
+                {slots.map(({ label, idx, isA }) => (
+                  <div key={idx}>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 9,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.5,
+                        marginBottom: 4,
+                        color: isA ? "var(--primary)" : "var(--success)",
+                      }}
+                    >
+                      {label}
+                    </label>
+                    <select
+                      value={editPlayers[idx] || ""}
+                      onChange={(e) => {
+                        const next = [...editPlayers];
+                        next[idx] = e.target.value;
+                        setEditPlayers(next);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 7,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        outline: "none",
+                        fontFamily: "inherit",
+                        background: isA
+                          ? "var(--primary-dim)"
+                          : "var(--success-dim)",
+                        border: `1px solid ${isA ? "var(--primary-border)" : "var(--success-border)"}`,
+                        color: "var(--text)",
+                      }}
+                    >
+                      {Object.entries(playersMap).map(([id, name]) => (
+                        <option key={id} value={id}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
               </div>
               {hasDupe && (
                 <div

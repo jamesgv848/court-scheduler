@@ -49,21 +49,17 @@ export default function ImportSchedulePage() {
       const schedule = parsed.matches.map((m, idx) => {
         if (!m.round || !m.court || !m.teamA || !m.teamB)
           throw new Error(`Invalid match structure at index ${idx}`);
-
         if (m.teamA.length !== 2 || m.teamB.length !== 2)
           throw new Error(
             `Each team must have exactly 2 players (match ${idx + 1})`,
           );
-
         const allNames = [...m.teamA, ...m.teamB];
         const playerIds = allNames.map((n) => nameMap[n.toLowerCase()]);
         const unknown = allNames.filter((n, i) => !playerIds[i]);
-
         if (unknown.length > 0)
           throw new Error(
             `Unknown player(s) in match ${idx + 1}: ${unknown.join(", ")}`,
           );
-
         let restingIds = null;
         if (Array.isArray(m.resting) && m.resting.length > 0) {
           restingIds = m.resting.map((n) => nameMap[n.toLowerCase()]);
@@ -73,7 +69,6 @@ export default function ImportSchedulePage() {
               `Unknown resting player(s) in match ${idx + 1}: ${unknownRest.join(", ")}`,
             );
         }
-
         return {
           court: m.court,
           round: m.round,
@@ -98,18 +93,49 @@ export default function ImportSchedulePage() {
   }
 
   const placeholder = `{
-    "matches": [{
-            "round": 1,
-            "court": 1,
-            "teamA": ["P1", "P2"],"teamB": ["P3", "P4"],
-            "resting": ["P9","P10"]
-        }, {
-            "round": 1,
-            "court": 2,
-            "teamA": ["P5", "P6"],"teamB": ["P7", "P8"]
-        }
-    ]
+  "matches": [
+    {
+      "round": 1, "court": 1,
+      "teamA": ["P1","P2"], "teamB": ["P3","P4"],
+      "resting": ["P9","P10"]
+    },
+    {
+      "round": 1, "court": 2,
+      "teamA": ["P5","P6"], "teamB": ["P7","P8"]
+    }
+  ]
 }`;
+
+  // Player names joined for use in the prompt
+  const playerNames =
+    players.length > 0
+      ? players.map((p) => p.name).join(", ")
+      : "Ajit, Bikram, Chetan, Hanumant, Krishna, Nagu, Preetam, Sai, Sampreet, Vijay";
+
+  const promptText = `Generate a badminton doubles schedule with the following constraints:
+
+Players: ${playerNames}
+Courts: 2
+Rounds: 11
+
+Rules:
+1. Minimise repeat partner and opponent pairings across all rounds — maximise variety.
+
+2. No player should play more than 4 consecutive rounds without a rest. This only applies when the player count is odd and someone must rest each round.
+
+3. Players move freely between courts — do NOT anchor players to a fixed court.
+
+4. Court continuity — to allow a court to start the next game immediately when it finishes early:
+   - At least 2 of the 4 players from court X in round N should also appear on court X in round N+1.
+   - No player should remain on the same court for more than 2 consecutive rounds — after that they must switch to the other court.
+
+5. For odd player counts, one player rests each round. Distribute rest slots as evenly as possible across all players. List resting players once per round on the court 1 entry only. Omit the resting field entirely if no one is resting.
+
+6. Every player must appear in exactly one game per round, or be listed as resting.
+
+Output JSON only — no explanation, no markdown, no code fences.
+Strict format:
+{"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"],"resting":["P9"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`;
 
   return (
     <div className="container" style={{ paddingTop: 12 }}>
@@ -176,7 +202,7 @@ export default function ImportSchedulePage() {
             }}
           />
 
-          {/* GPT prompt hint */}
+          {/* ChatGPT prompt hint */}
           <details style={{ marginTop: 10 }}>
             <summary
               style={{
@@ -184,31 +210,64 @@ export default function ImportSchedulePage() {
                 color: "var(--primary)",
                 cursor: "pointer",
                 fontWeight: 600,
+                userSelect: "none",
               }}
             >
               💡 How to generate this with ChatGPT
             </summary>
-            <div
-              style={{
-                marginTop: 8,
-                padding: 10,
-                borderRadius: 8,
-                background: "var(--surface2)",
-                border: "1px solid var(--border)",
-                fontSize: 12,
-                color: "var(--muted)",
-                lineHeight: 1.6,
-              }}
-            >
-              <strong>Prompt template:</strong>
-              <br />
-              "Create a badminton doubles schedule for these players: Ajit,
-              Bikram, Chetan, Hanumant, Krishna, Nagu, Preetam, Sai, Sampreet,
-              Vijay. Use 2 courts, 5 rounds per court. Minimise repeat pairings.
-              Resting player need to be mentioned only once per round. and
-              opponents. Output as JSON only, format:
-              {`{"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"],"resting": ["P9","P10"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`}
-              "
+
+            <div style={{ marginTop: 8 }}>
+              {/* Instruction */}
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "var(--muted)",
+                  marginBottom: 6,
+                  lineHeight: 1.5,
+                }}
+              >
+                Copy the prompt below and paste it into ChatGPT. Then paste the
+                JSON output into the text area above.
+                <br />
+                Player names are auto-filled from your current roster.
+              </p>
+
+              {/* Prompt box */}
+              <div style={{ position: "relative" }}>
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    background: "var(--surface2)",
+                    border: "1px solid var(--border)",
+                    fontSize: 11.5,
+                    color: "var(--text)",
+                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                    lineHeight: 1.65,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    userSelect: "all",
+                    overflowX: "auto",
+                  }}
+                >
+                  {promptText}
+                </pre>
+                {/* Copy button */}
+                <CopyButton text={promptText} />
+              </div>
+
+              <p
+                style={{
+                  fontSize: 11,
+                  color: "var(--muted2)",
+                  marginTop: 6,
+                  marginBottom: 0,
+                }}
+              >
+                Tip: If ChatGPT wraps the output in ```json ``` fences, ask it
+                to re-output without any code blocks.
+              </p>
             </div>
           </details>
 
@@ -303,5 +362,41 @@ export default function ImportSchedulePage() {
 
       <div style={{ height: 16 }} />
     </div>
+  );
+}
+
+// ── Small copy-to-clipboard button ───────────────────────────────────────────
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard not available — user can select-all manually
+    }
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      style={{
+        position: "absolute",
+        top: 8,
+        right: 8,
+        padding: "3px 9px",
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        background: copied ? "var(--success-dim)" : "var(--surface)",
+        color: copied ? "var(--success)" : "var(--muted)",
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        transition: "all .15s",
+      }}
+    >
+      {copied ? "✓ Copied" : "Copy"}
+    </button>
   );
 }
