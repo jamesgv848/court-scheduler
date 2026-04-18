@@ -1,26 +1,188 @@
 // src/pages/ImportSchedulePage.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ConfirmModal from "../components/ConfirmModal";
 import {
   fetchPlayers,
   deleteScheduleForDate,
   saveScheduleToDb,
+  fetchPairingStatsRecorded,
 } from "../api/supabase-actions";
+
+// ── Pairing tier classification ───────────────────────────────────────────────
+function classifyPair(wins, matches) {
+  if (matches < 5) return "NEW";
+  const pct = Math.round((wins / matches) * 100);
+  if (pct >= 65) return "STRONG";
+  if (pct <= 35) return "WEAK";
+  return "BALANCED";
+}
+
+// ── Build pairing stats section for the prompt ────────────────────────────────
+function buildPairingStatsText(pairingData, selectedNames) {
+  const nameSet = new Set(selectedNames.map((n) => n.toLowerCase()));
+
+  // Filter — only pairs where BOTH players are selected
+  const relevant = (pairingData || [])
+    .filter(
+      (r) =>
+        r.matches >= 5 &&
+        nameSet.has((r.name_a || "").toLowerCase()) &&
+        nameSet.has((r.name_b || "").toLowerCase()),
+    )
+    .map((r) => ({
+      nameA: r.name_a,
+      nameB: r.name_b,
+      matches: Number(r.matches),
+      wins: Number(r.wins),
+      pct: Math.round((Number(r.wins) / Number(r.matches)) * 100),
+      tier: classifyPair(Number(r.wins), Number(r.matches)),
+    }));
+
+  const strong = relevant
+    .filter((r) => r.tier === "STRONG")
+    .sort((a, b) => b.pct - a.pct);
+  const weak = relevant
+    .filter((r) => r.tier === "WEAK")
+    .sort((a, b) => a.pct - b.pct);
+  const balanced = relevant
+    .filter((r) => r.tier === "BALANCED")
+    .sort((a, b) => b.pct - a.pct);
+
+  const fmt = (r) =>
+    `   - ${r.nameA} & ${r.nameB}: ${r.pct}% (${r.matches} matches)`;
+
+  const lines = [];
+
+  lines.push("Pairing history for today's players:");
+  lines.push("");
+
+  if (strong.length > 0) {
+    lines.push("   STRONG pairs (win% ≥ 65%):");
+    strong.forEach((r) => lines.push(fmt(r)));
+  } else {
+    lines.push("   STRONG pairs (win% ≥ 65%): none yet");
+  }
+
+  lines.push("");
+
+  if (weak.length > 0) {
+    lines.push("   WEAK pairs (win% ≤ 35%):");
+    weak.forEach((r) => lines.push(fmt(r)));
+  } else {
+    lines.push("   WEAK pairs (win% ≤ 35%): none yet");
+  }
+
+  lines.push("");
+
+  if (balanced.length > 0) {
+    lines.push("   BALANCED pairs (36–64%):");
+    balanced.forEach((r) => lines.push(fmt(r)));
+  } else {
+    lines.push("   BALANCED pairs (36–64%): none yet");
+  }
+
+  // NEW pairs — just count them, no need to list
+  const newCount = (pairingData || []).filter(
+    (r) =>
+      Number(r.matches) < 5 &&
+      nameSet.has((r.name_a || "").toLowerCase()) &&
+      nameSet.has((r.name_b || "").toLowerCase()),
+  ).length;
+
+  if (newCount > 0) {
+    lines.push("");
+    lines.push(
+      `   NEW pairs (< 5 matches): ${newCount} pair(s) — treat as BALANCED`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+// ── Full prompt builder ───────────────────────────────────────────────────────
+function buildPrompt(selectedNames, courts, rounds, pairingStatsText) {
+  const playerList = selectedNames.join(", ");
+  const playerCount = selectedNames.length;
+
+  return `Generate a badminton doubles schedule with the following constraints:
+
+Players: ${playerList}
+Courts: ${courts}
+Rounds: ${rounds}
+Player count: ${playerCount}
+
+Generate a schedule that maximizes variety in partners and opponents. 
+Ensure evey player gets approximately the same number of matches and rest slots. Also the rest slots are distributed fairly equal consecutive rounds.
+(e.g. if 10 rounds and 5 players, each should play about 8 matches and rest about 2 times). 
+Avoid repeating the same pairs too often. 
+
+
+Pairing stats is only for reference and to be considered only if asked in the prompt.
+
+${pairingStatsText}
+
+━━━ OUTPUT ━━━
+
+Output the JSON schedule only.
+- Single line, no line breaks inside the JSON.
+- teamA and teamB always have exactly 2 players each.
+- "resting" only on court 1 entry, only when someone rests, omit otherwise.
+
+Follow the JSON schedule with a 'Scheduling Statistics Summary' section. 
+This section must include: 
+1) Total games played per person
+2) Total rest slots per person
+3) A 'Pairing Frequency' list showing how many times each unique duo played together
+4) An 'Opponent Frequency' list showing how many times each player faced every other player. 
+Ensure this summary is in plain text or Markdown tables, placed strictly after the JSON block so the JSON remains easily extractable.
+
+{"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"],"resting":["P9"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function ImportSchedulePage() {
   const today = new Date().toISOString().slice(0, 10);
+
+  // Import state
   const [date, setDate] = useState(today);
   const [jsonText, setJsonText] = useState("");
   const [clearFirst, setClearFirst] = useState(true);
-  const [players, setPlayers] = useState([]);
   const [message, setMessage] = useState(null);
   const [isError, setIsError] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Players
+  const [players, setPlayers] = useState([]);
+
+  // Prompt generator state
+  const [selected, setSelected] = useState([]); // selected player ids
+  const [courtsInput, setCourtsInput] = useState("2");
+  const [roundsInput, setRoundsInput] = useState("11");
+  const [promptText, setPromptText] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [promptReady, setPromptReady] = useState(false);
+  const [promptCollapsed, setPromptCollapsed] = useState(false); // collapse prompt box
+
+  // Pairing stats cache — keyed by date, avoids re-fetching on same date
+  const pairingCache = useRef({ date: null, data: null });
+
   useEffect(() => {
-    fetchPlayers().then(({ data }) => setPlayers(data || []));
+    fetchPlayers().then(({ data }) => {
+      const p = data || [];
+      setPlayers(p);
+      // Default: select all players
+      //setSelected(p.map((pl) => pl.id));
+    });
   }, []);
+
+  function togglePlayer(id) {
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+    setPromptReady(false); // prompt needs regeneration if selection changes
+  }
 
   function buildPlayerNameMap() {
     const map = {};
@@ -30,6 +192,60 @@ export default function ImportSchedulePage() {
     return map;
   }
 
+  // ── Generate prompt ────────────────────────────────────────────────────────
+  // Pairing stats are cached per date — no re-fetch if date hasn't changed.
+  async function handleGeneratePrompt() {
+    if (selected.length < 4) {
+      alert("Select at least 4 players to generate a prompt.");
+      return;
+    }
+    setGenerating(true);
+    setPromptReady(false);
+    setPromptCollapsed(false);
+    try {
+      let pairingData;
+      if (
+        pairingCache.current.date === date &&
+        pairingCache.current.data !== null
+      ) {
+        // Cache hit — same date, reuse data
+        pairingData = pairingCache.current.data;
+      } else {
+        // Cache miss — fetch and store
+        const { data, error } = await fetchPairingStatsRecorded(null, null);
+        if (error) throw error;
+        pairingCache.current = { date, data };
+        pairingData = data;
+      }
+
+      const selectedNames = players
+        .filter((p) => selected.includes(p.id))
+        .map((p) => p.name);
+
+      const courts = Math.max(1, parseInt(courtsInput, 10) || 2);
+      const rounds = Math.max(1, parseInt(roundsInput, 10) || 11);
+
+      const statsText = buildPairingStatsText(pairingData, selectedNames);
+      const prompt = buildPrompt(selectedNames, courts, rounds, statsText);
+
+      setPromptText(prompt);
+      setPromptReady(true);
+    } catch (err) {
+      console.error("Generate prompt error", err);
+      alert("Failed to fetch pairing stats: " + err.message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  // ── Clear prompt ───────────────────────────────────────────────────────────
+  function handleClearPrompt() {
+    setPromptText("");
+    setPromptReady(false);
+    setPromptCollapsed(false);
+  }
+
+  // ── Import ─────────────────────────────────────────────────────────────────
   function onImportClick() {
     setMessage(null);
     setIsError(false);
@@ -106,58 +322,271 @@ export default function ImportSchedulePage() {
   ]
 }`;
 
-  // Player names joined for use in the prompt
-  const playerNames =
-    players.length > 0
-      ? players.map((p) => p.name).join(", ")
-      : "Ajit, Bikram, Chetan, Hanumant, Krishna, Nagu, Preetam, Sai, Sampreet, Vijay";
-
-  const promptText = `Generate a badminton doubles schedule with the following constraints:
-
-Players: ${playerNames}
-Courts: 2
-Rounds: 11
-
-Rules:
-1. Minimise repeat partner and opponent pairings across all rounds — maximise variety.
-
-2. No player should play more than 4 consecutive rounds without a rest. This only applies when the player count is odd and someone must rest each round.
-
-3. Players move freely between courts — do NOT anchor players to a fixed court.
-
-4. Court continuity — to allow a court to start the next game immediately when it finishes early:
-   - At least 2 of the 4 players from court X in round N should also appear on court X in round N+1.
-   - No player should remain on the same court for more than 2 consecutive rounds — after that they must switch to the other court.
-
-5. For odd player counts, one player rests each round. Distribute rest slots as evenly as possible across all players. List resting players once per round on the court 1 entry only. Omit the resting field entirely if no one is resting.
-
-6. Every player must appear in exactly one game per round, or be listed as resting.
-
-Output JSON only — no explanation, no markdown, no code fences.
-Strict format:
-{"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"],"resting":["P9"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`;
-
   return (
     <div className="container" style={{ paddingTop: 12 }}>
+      {/* ── SECTION 1: Prompt Generator ───────────────────────────────────── */}
+      <div className="card" style={{ marginBottom: 10 }}>
+        <div className="card-header">
+          <span className="card-title">💡 Generate AI Prompt</span>
+          <span className="badge blue">{selected.length} selected</span>
+        </div>
+        <div className="card-body">
+          {/* Date + Courts + Rounds */}
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginBottom: 14,
+              flexWrap: "wrap",
+              alignItems: "flex-end",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <label className="form-label">Date</label>
+              <div className="date-input-wrap">
+                <span className="date-input-icon">📅</span>
+                <input
+                  className="date-input"
+                  type="date"
+                  value={date}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setPromptReady(false);
+                  }}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="form-label">Courts</label>
+              <input
+                className="number-input"
+                type="text"
+                inputMode="numeric"
+                value={courtsInput}
+                onChange={(e) => {
+                  setCourtsInput(e.target.value);
+                  setPromptReady(false);
+                }}
+                style={{ width: 56 }}
+              />
+            </div>
+            <div>
+              <label className="form-label">Rounds</label>
+              <input
+                className="number-input"
+                type="text"
+                inputMode="numeric"
+                value={roundsInput}
+                onChange={(e) => {
+                  setRoundsInput(e.target.value);
+                  setPromptReady(false);
+                }}
+                style={{ width: 56 }}
+              />
+            </div>
+          </div>
+
+          {/* Player selection chips */}
+          <div style={{ marginBottom: 12 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 7,
+              }}
+            >
+              <label className="form-label" style={{ margin: 0 }}>
+                Players
+              </label>
+              <button
+                className="btn small"
+                onClick={() => {
+                  setSelected(players.map((p) => p.id));
+                  setPromptReady(false);
+                }}
+              >
+                All
+              </button>
+              <button
+                className="btn small"
+                onClick={() => {
+                  setSelected([]);
+                  setPromptReady(false);
+                }}
+              >
+                None
+              </button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {players.map((p) => {
+                const on = selected.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => togglePlayer(p.id)}
+                    style={{
+                      padding: "5px 11px",
+                      borderRadius: 20,
+                      border: "1px solid",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      background: on ? "var(--primary-dim)" : "var(--surface)",
+                      color: on ? "var(--primary)" : "var(--muted)",
+                      borderColor: on
+                        ? "var(--primary-border)"
+                        : "var(--border)",
+                      transition: "all .15s",
+                    }}
+                  >
+                    {p.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Generate button */}
+          <button
+            className="btn generate"
+            onClick={handleGeneratePrompt}
+            disabled={generating || selected.length < 4}
+          >
+            {generating ? "⏳ Fetching stats…" : "⚡ Generate Prompt"}
+          </button>
+
+          {/* Prompt output — shown after generation */}
+          {promptReady && promptText && (
+            <div style={{ marginTop: 14 }}>
+              {/* Header row: label + collapse + clear buttons */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "var(--text)",
+                  }}
+                >
+                  Generated prompt
+                  {promptCollapsed && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 400,
+                        color: "var(--muted)",
+                        marginLeft: 8,
+                      }}
+                    >
+                      (collapsed)
+                    </span>
+                  )}
+                </span>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                    {!promptCollapsed && "Select all · copy · paste into AI"}
+                  </span>
+                  {/* Collapse / Expand toggle */}
+                  <button
+                    onClick={() => setPromptCollapsed((c) => !c)}
+                    style={{
+                      padding: "3px 9px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
+                      color: "var(--muted)",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                    title={
+                      promptCollapsed ? "Expand prompt" : "Collapse prompt"
+                    }
+                  >
+                    {promptCollapsed ? "▼ Expand" : "▲ Collapse"}
+                  </button>
+                  {/* Clear button */}
+                  <button
+                    onClick={handleClearPrompt}
+                    style={{
+                      padding: "3px 9px",
+                      borderRadius: 6,
+                      border: "1px solid var(--danger-border)",
+                      background: "var(--danger-dim)",
+                      color: "var(--danger)",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                    title="Clear prompt"
+                  >
+                    ✕ Clear
+                  </button>
+                </div>
+              </div>
+
+              {/* Prompt <pre> — hidden when collapsed */}
+              {!promptCollapsed && (
+                <div style={{ position: "relative" }}>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: "10px 12px",
+                      paddingRight: 72,
+                      borderRadius: 8,
+                      background: "var(--surface2)",
+                      border: "1px solid var(--border)",
+                      fontSize: 11.5,
+                      color: "var(--text)",
+                      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                      lineHeight: 1.65,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      userSelect: "all",
+                      maxHeight: 420,
+                      overflowY: "auto",
+                    }}
+                  >
+                    {promptText}
+                  </pre>
+                  <CopyButton text={promptText} />
+                </div>
+              )}
+
+              {!promptCollapsed && (
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: "var(--muted2)",
+                    marginTop: 6,
+                    marginBottom: 0,
+                  }}
+                >
+                  Tip: If the AI wraps the output in ```json``` fences, ask it
+                  to re-output without any code blocks.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── SECTION 2: Import ─────────────────────────────────────────────── */}
       <div className="card">
         <div className="card-header">
           <span className="card-title">📥 Import Schedule</span>
         </div>
         <div className="card-body">
-          {/* Date */}
-          <div style={{ marginBottom: 14 }}>
-            <label className="form-label">Date</label>
-            <div className="date-input-wrap">
-              <span className="date-input-icon">📅</span>
-              <input
-                className="date-input"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </div>
-          </div>
-
           {/* Clear toggle */}
           <label
             style={{
@@ -180,7 +609,7 @@ Strict format:
           </label>
 
           {/* JSON input */}
-          <label className="form-label">Schedule JSON (from ChatGPT)</label>
+          <label className="form-label">Schedule JSON (from AI)</label>
           <textarea
             rows={14}
             value={jsonText}
@@ -201,75 +630,6 @@ Strict format:
               whiteSpace: "pre",
             }}
           />
-
-          {/* ChatGPT prompt hint */}
-          <details style={{ marginTop: 10 }}>
-            <summary
-              style={{
-                fontSize: 12,
-                color: "var(--primary)",
-                cursor: "pointer",
-                fontWeight: 600,
-                userSelect: "none",
-              }}
-            >
-              💡 How to generate this with ChatGPT
-            </summary>
-
-            <div style={{ marginTop: 8 }}>
-              {/* Instruction */}
-              <p
-                style={{
-                  fontSize: 12,
-                  color: "var(--muted)",
-                  marginBottom: 6,
-                  lineHeight: 1.5,
-                }}
-              >
-                Copy the prompt below and paste it into ChatGPT. Then paste the
-                JSON output into the text area above.
-                <br />
-                Player names are auto-filled from your current roster.
-              </p>
-
-              {/* Prompt box */}
-              <div style={{ position: "relative" }}>
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    background: "var(--surface2)",
-                    border: "1px solid var(--border)",
-                    fontSize: 11.5,
-                    color: "var(--text)",
-                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                    lineHeight: 1.65,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    userSelect: "all",
-                    overflowX: "auto",
-                  }}
-                >
-                  {promptText}
-                </pre>
-                {/* Copy button */}
-                <CopyButton text={promptText} />
-              </div>
-
-              <p
-                style={{
-                  fontSize: 11,
-                  color: "var(--muted2)",
-                  marginTop: 6,
-                  marginBottom: 0,
-                }}
-              >
-                Tip: If ChatGPT wraps the output in ```json ``` fences, ask it
-                to re-output without any code blocks.
-              </p>
-            </div>
-          </details>
 
           {/* Actions */}
           <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
@@ -310,40 +670,6 @@ Strict format:
               {message}
             </div>
           )}
-
-          {/* Known players */}
-          <div style={{ marginTop: 16 }}>
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                color: "var(--muted2)",
-                textTransform: "uppercase",
-                letterSpacing: 0.6,
-                marginBottom: 6,
-              }}
-            >
-              Known players ({players.length})
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {players.map((p) => (
-                <span
-                  key={p.id}
-                  style={{
-                    padding: "3px 9px",
-                    borderRadius: 20,
-                    background: "var(--primary-dim)",
-                    color: "var(--primary)",
-                    border: "1px solid var(--primary-border)",
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  {p.name}
-                </span>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -365,7 +691,7 @@ Strict format:
   );
 }
 
-// ── Small copy-to-clipboard button ───────────────────────────────────────────
+// ── Copy to clipboard button ──────────────────────────────────────────────────
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
   async function handleCopy() {
@@ -374,7 +700,7 @@ function CopyButton({ text }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // clipboard not available — user can select-all manually
+      // fallback: user can tap-to-select-all on the <pre>
     }
   }
   return (
