@@ -282,6 +282,19 @@ export async function fetchPairingStatsRecorded(
   return { data, error };
 }
 
+// Fetch scheduled pairings for a date regardless of whether results are recorded.
+// Returns each pair's count on the given date + their all-time historical win%.
+// Used in PairingStats to preview upcoming pairings before games are played.
+//
+// p_date: 'YYYY-MM-DD' string | null (null = all dates)
+
+export async function fetchPairingStatsScheduled(p_date = null) {
+  const { data, error } = await supabase.rpc("pairing_stats_scheduled", {
+    p_date: p_date,
+  });
+  return { data, error };
+}
+
 // Simple client-side createManualMatch (non-transactional, simple flow)
 // params:
 //  - matchDate: 'YYYY-MM-DD' (string) or Date
