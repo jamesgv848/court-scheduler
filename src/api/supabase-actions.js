@@ -228,6 +228,33 @@ export async function fetchPlayerTotalsForPeriod(period) {
   return { data, error };
 }
 
+export async function fetchPlayerTotalsForRange(p_start = null, p_end = null) {
+  const { data, error } = await supabase.rpc("player_totals_for_range", {
+    p_start,
+    p_end,
+  });
+  return { data, error };
+}
+
+// Returns the number of distinct sessions each player attended within
+// a date range. Used by the scoreboard to show attendance fractions
+// (e.g. "4/10") when a session-count or date-range filter is active.
+// p_start / p_end: 'YYYY-MM-DD' strings or null.
+export async function fetchPlayerSessionCounts(p_start = null, p_end = null) {
+  const { data, error } = await supabase.rpc("get_player_session_counts", {
+    p_start,
+    p_end,
+  });
+  return { data, error };
+}
+
+export async function fetchSessionDates(limit = 10) {
+  const { data, error } = await supabase.rpc("get_session_dates", {
+    p_limit: limit,
+  });
+  return { data, error };
+}
+
 export async function deleteScheduleForDate(dateStr) {
   // 1) fetch match ids for date
   const { data: matches, error: fetchErr } = await supabase
@@ -536,8 +563,8 @@ export async function ensureScoresForMatch(matchId) {
   }
 }
 
-export async function exportFullMatchAnalysis() {
-  return await supabase.rpc("export_full_match_analysis");
+export async function exportFullMatchAnalysis(p_start = null, p_end = null) {
+  return await supabase.rpc("export_full_match_analysis", { p_start, p_end });
 }
 
 export async function updateMatchPlayers(matchId, playerIds) {

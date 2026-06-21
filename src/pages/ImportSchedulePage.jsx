@@ -6,9 +6,12 @@ import {
   deleteScheduleForDate,
   saveScheduleToDb,
   fetchPairingStatsRecorded,
+  fetchPlayerTotalsOverall,
+  fetchPlayerTotalsForRange,
 } from "../api/supabase-actions";
 
-// ── Pairing tier classification ───────────────────────────────────────────────
+// ── Tier helpers ──────────────────────────────────────────────────────────────
+
 function classifyPair(wins, matches) {
   if (matches < 5) return "NEW";
   const pct = Math.round((wins / matches) * 100);
@@ -17,11 +20,107 @@ function classifyPair(wins, matches) {
   return "BALANCED";
 }
 
-// ── Build pairing stats section for the prompt ────────────────────────────────
+function classifyPlayer(pct, matches) {
+  if (matches < 10) return "NEW";
+  if (pct >= 65) return "STRONG";
+  if (pct <= 35) return "WEAK";
+  return "BALANCED";
+}
+
+// ── Build individual strength section ─────────────────────────────────────────
+function buildStrengthText(overallData, recentData, selectedNames) {
+  const nameSet = new Set(selectedNames.map((n) => n.toLowerCase()));
+
+  // Normalise overall
+  const overall = (overallData || [])
+    .filter((r) => nameSet.has((r.name || r.player_name || "").toLowerCase()))
+    .map((r) => ({
+      name: r.name || r.player_name,
+      matches: Number(r.matches ?? r.total_matches ?? 0),
+      wins: Number(r.wins ?? 0),
+      pct: Number(r.win_pct ?? 0),
+    }))
+    .sort((a, b) => b.pct - a.pct);
+
+  // Normalise recent (last 3 months)
+  const recentMap = {};
+  (recentData || []).forEach((r) => {
+    const name = r.name || r.player_name;
+    if (name)
+      recentMap[name.toLowerCase()] = {
+        matches: Number(r.matches ?? r.total_matches ?? 0),
+        wins: Number(r.wins ?? 0),
+        pct: Number(r.win_pct ?? 0),
+      };
+  });
+
+  const lines = [];
+
+  // ── Overall strength ──────────────────────────────────────────────────────
+  lines.push("Player strength (all-time win%):");
+  lines.push(
+    "   Tier thresholds: STRONG ≥ 65% · BALANCED 36–64% · WEAK ≤ 35% · NEW < 10 matches",
+  );
+  lines.push("");
+
+  const byTier = { STRONG: [], BALANCED: [], WEAK: [], NEW: [] };
+  overall.forEach((r) => {
+    const tier = classifyPlayer(r.pct, r.matches);
+    byTier[tier].push(
+      `   - ${r.name}: ${r.pct.toFixed(1)}% (${r.matches}M) [${tier}]`,
+    );
+  });
+
+  ["STRONG", "BALANCED", "WEAK", "NEW"].forEach((t) => {
+    if (byTier[t].length > 0) {
+      byTier[t].forEach((l) => lines.push(l));
+    }
+  });
+
+  // ── Recent form ───────────────────────────────────────────────────────────
+  lines.push("");
+  lines.push("Recent form (last 3 months win%):");
+  lines.push("   Use this to identify players who are improving or declining:");
+  lines.push("");
+
+  const recentRows = overall
+    .map((r) => {
+      const rec = recentMap[r.name.toLowerCase()];
+      return { name: r.name, overall: r.pct, ...rec };
+    })
+    .filter((r) => r.matches > 0)
+    .sort((a, b) => b.pct - a.pct);
+
+  if (recentRows.length === 0) {
+    lines.push("   No recent data available (no matches in last 3 months).");
+  } else {
+    recentRows.forEach((r) => {
+      const trend =
+        r.pct > r.overall + 5
+          ? " ↑ improving"
+          : r.pct < r.overall - 5
+            ? " ↓ declining"
+            : "";
+      const tier = classifyPlayer(r.pct, r.matches);
+      lines.push(
+        `   - ${r.name}: ${r.pct.toFixed(1)}% (${r.matches}M) [${tier}]${trend}`,
+      );
+    });
+  }
+
+  lines.push("");
+  lines.push(
+    "   When a player's recent form differs significantly from all-time (±5%), " +
+      "prefer their recent form as the more accurate indicator of current strength.",
+  );
+
+  return lines.join("\n");
+}
+
+// ── Build pairing stats section ───────────────────────────────────────────────
 function buildPairingStatsText(pairingData, selectedNames) {
   const nameSet = new Set(selectedNames.map((n) => n.toLowerCase()));
 
-  // Filter — only pairs where BOTH players are selected
   const relevant = (pairingData || [])
     .filter(
       (r) =>
@@ -52,43 +151,38 @@ function buildPairingStatsText(pairingData, selectedNames) {
     `   - ${r.nameA} & ${r.nameB}: ${r.pct}% (${r.matches} matches)`;
 
   const lines = [];
-
   lines.push("Pairing history for today's players:");
   lines.push("");
 
-  if (strong.length > 0) {
-    lines.push("   STRONG pairs (win% ≥ 65%):");
-    strong.forEach((r) => lines.push(fmt(r)));
-  } else {
-    lines.push("   STRONG pairs (win% ≥ 65%): none yet");
-  }
-
+  lines.push(
+    strong.length > 0
+      ? "   STRONG pairs (win% ≥ 65%):"
+      : "   STRONG pairs (win% ≥ 65%): none yet",
+  );
+  strong.forEach((r) => lines.push(fmt(r)));
   lines.push("");
 
-  if (weak.length > 0) {
-    lines.push("   WEAK pairs (win% ≤ 35%):");
-    weak.forEach((r) => lines.push(fmt(r)));
-  } else {
-    lines.push("   WEAK pairs (win% ≤ 35%): none yet");
-  }
-
+  lines.push(
+    weak.length > 0
+      ? "   WEAK pairs (win% ≤ 35%):"
+      : "   WEAK pairs (win% ≤ 35%): none yet",
+  );
+  weak.forEach((r) => lines.push(fmt(r)));
   lines.push("");
 
-  if (balanced.length > 0) {
-    lines.push("   BALANCED pairs (36–64%):");
-    balanced.forEach((r) => lines.push(fmt(r)));
-  } else {
-    lines.push("   BALANCED pairs (36–64%): none yet");
-  }
+  lines.push(
+    balanced.length > 0
+      ? "   BALANCED pairs (36–64%):"
+      : "   BALANCED pairs (36–64%): none yet",
+  );
+  balanced.forEach((r) => lines.push(fmt(r)));
 
-  // NEW pairs — just count them, no need to list
   const newCount = (pairingData || []).filter(
     (r) =>
       Number(r.matches) < 5 &&
       nameSet.has((r.name_a || "").toLowerCase()) &&
       nameSet.has((r.name_b || "").toLowerCase()),
   ).length;
-
   if (newCount > 0) {
     lines.push("");
     lines.push(
@@ -100,9 +194,16 @@ function buildPairingStatsText(pairingData, selectedNames) {
 }
 
 // ── Full prompt builder ───────────────────────────────────────────────────────
-function buildPrompt(selectedNames, courts, rounds, pairingStatsText) {
+function buildPrompt(
+  selectedNames,
+  courts,
+  rounds,
+  pairingStatsText,
+  strengthText,
+) {
   const playerList = selectedNames.join(", ");
   const playerCount = selectedNames.length;
+  const hasStrength = !!strengthText;
 
   return `Generate a badminton doubles schedule with the following constraints:
 
@@ -111,13 +212,25 @@ Courts: ${courts}
 Rounds: ${rounds}
 Player count: ${playerCount}
 
-Generate a schedule that maximizes variety in partners and opponents. 
-Ensure evey player gets approximately the same number of matches and rest slots. Also the rest slots are distributed fairly equal consecutive rounds.
-(e.g. if 10 rounds and 5 players, each should play about 8 matches and rest about 2 times). 
-Avoid repeating the same pairs too often. 
+Generate a schedule that maximizes variety in partners and opponents.
+Ensure every player gets approximately the same number of matches and rest slots. Also the rest slots are distributed fairly equal consecutive rounds.
+(e.g. if 10 rounds and 5 players, each should play about 8 matches and rest about 2 times).
+Avoid repeating the same pairs too often.
+${
+  hasStrength
+    ? `
+━━━ PLAYER STRENGTH ━━━
 
+Use the individual strength and recent form data below to balance teams.
+Prefer pairing a STRONG player with a WEAK/BALANCED player on the same team so each court
+has two evenly matched teams. Avoid placing two STRONG players against two WEAK players.
 
-Pairing stats is only for reference and to be considered only if asked in the prompt.
+${strengthText}
+
+`
+    : ""
+}
+━━━ PAIRING HISTORY ━━━
 
 ${pairingStatsText}
 
@@ -128,12 +241,12 @@ Output the JSON schedule only.
 - teamA and teamB always have exactly 2 players each.
 - "resting" only on court 1 entry, only when someone rests, omit otherwise.
 
-Follow the JSON schedule with a 'Scheduling Statistics Summary' section. 
-This section must include: 
+Follow the JSON schedule with a 'Scheduling Statistics Summary' section.
+This section must include:
 1) Total games played per person
 2) Total rest slots per person
 3) A 'Pairing Frequency' list showing how many times each unique duo played together
-4) An 'Opponent Frequency' list showing how many times each player faced every other player. 
+4) An 'Opponent Frequency' list showing how many times each player faced every other player.
 Ensure this summary is in plain text or Markdown tables, placed strictly after the JSON block so the JSON remains easily extractable.
 
 {"matches":[{"round":1,"court":1,"teamA":["P1","P2"],"teamB":["P3","P4"],"resting":["P9"]},{"round":1,"court":2,"teamA":["P5","P6"],"teamB":["P7","P8"]}]}`;
@@ -157,31 +270,29 @@ export default function ImportSchedulePage() {
   const [players, setPlayers] = useState([]);
 
   // Prompt generator state
-  const [selected, setSelected] = useState([]); // selected player ids
+  const [selected, setSelected] = useState([]);
   const [courtsInput, setCourtsInput] = useState("2");
   const [roundsInput, setRoundsInput] = useState("11");
   const [promptText, setPromptText] = useState("");
   const [generating, setGenerating] = useState(false);
   const [promptReady, setPromptReady] = useState(false);
-  const [promptCollapsed, setPromptCollapsed] = useState(false); // collapse prompt box
+  const [promptCollapsed, setPromptCollapsed] = useState(false);
+  // Standard = pairing stats only | Extended = pairing + individual strength
+  const [statsDepth, setStatsDepth] = useState("extended");
 
-  // Pairing stats cache — keyed by date, avoids re-fetching on same date
+  // Caches — keyed by date
   const pairingCache = useRef({ date: null, data: null });
+  const strengthCache = useRef({ date: null, overall: null, recent: null });
 
   useEffect(() => {
-    fetchPlayers().then(({ data }) => {
-      const p = data || [];
-      setPlayers(p);
-      // Default: select all players
-      //setSelected(p.map((pl) => pl.id));
-    });
+    fetchPlayers().then(({ data }) => setPlayers(data || []));
   }, []);
 
   function togglePlayer(id) {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
-    setPromptReady(false); // prompt needs regeneration if selection changes
+    setPromptReady(false);
   }
 
   function buildPlayerNameMap() {
@@ -193,7 +304,6 @@ export default function ImportSchedulePage() {
   }
 
   // ── Generate prompt ────────────────────────────────────────────────────────
-  // Pairing stats are cached per date — no re-fetch if date hasn't changed.
   async function handleGeneratePrompt() {
     if (selected.length < 4) {
       alert("Select at least 4 players to generate a prompt.");
@@ -203,21 +313,6 @@ export default function ImportSchedulePage() {
     setPromptReady(false);
     setPromptCollapsed(false);
     try {
-      let pairingData;
-      if (
-        pairingCache.current.date === date &&
-        pairingCache.current.data !== null
-      ) {
-        // Cache hit — same date, reuse data
-        pairingData = pairingCache.current.data;
-      } else {
-        // Cache miss — fetch and store
-        const { data, error } = await fetchPairingStatsRecorded(null, null);
-        if (error) throw error;
-        pairingCache.current = { date, data };
-        pairingData = data;
-      }
-
       const selectedNames = players
         .filter((p) => selected.includes(p.id))
         .map((p) => p.name);
@@ -225,14 +320,73 @@ export default function ImportSchedulePage() {
       const courts = Math.max(1, parseInt(courtsInput, 10) || 2);
       const rounds = Math.max(1, parseInt(roundsInput, 10) || 11);
 
+      // ── Pairing stats (cached per date) ───────────────────────────────────
+      let pairingData;
+      if (
+        pairingCache.current.date === date &&
+        pairingCache.current.data !== null
+      ) {
+        pairingData = pairingCache.current.data;
+      } else {
+        const { data, error } = await fetchPairingStatsRecorded(null, null);
+        if (error) throw error;
+        pairingCache.current = { date, data };
+        pairingData = data;
+      }
+
+      // ── Individual strength (extended mode, cached per date) ───────────────
+      let strengthText = null;
+      if (statsDepth === "extended") {
+        let overallData, recentData;
+        if (
+          strengthCache.current.date === date &&
+          strengthCache.current.overall !== null
+        ) {
+          overallData = strengthCache.current.overall;
+          recentData = strengthCache.current.recent;
+        } else {
+          // 3 months ago date
+          const threeMonthsAgo = new Date();
+          threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+          const p_start = threeMonthsAgo.toISOString().slice(0, 10);
+
+          // Fetch overall and recent in parallel
+          const [ovRes, recRes] = await Promise.all([
+            fetchPlayerTotalsOverall(),
+            fetchPlayerTotalsForRange(p_start, null),
+          ]);
+          if (ovRes.error) throw ovRes.error;
+          if (recRes.error) throw recRes.error;
+
+          overallData = ovRes.data;
+          recentData = recRes.data;
+          strengthCache.current = {
+            date,
+            overall: overallData,
+            recent: recentData,
+          };
+        }
+        strengthText = buildStrengthText(
+          overallData,
+          recentData,
+          selectedNames,
+        );
+      }
+
       const statsText = buildPairingStatsText(pairingData, selectedNames);
-      const prompt = buildPrompt(selectedNames, courts, rounds, statsText);
+      const prompt = buildPrompt(
+        selectedNames,
+        courts,
+        rounds,
+        statsText,
+        strengthText,
+      );
 
       setPromptText(prompt);
       setPromptReady(true);
     } catch (err) {
       console.error("Generate prompt error", err);
-      alert("Failed to fetch pairing stats: " + err.message);
+      alert("Failed to fetch stats: " + err.message);
     } finally {
       setGenerating(false);
     }
@@ -448,19 +602,132 @@ export default function ImportSchedulePage() {
             </div>
           </div>
 
+          {/* ── Stats depth toggle ─────────────────────────────────────────── */}
+          <div style={{ marginBottom: 14 }}>
+            <label className="form-label" style={{ marginBottom: 6 }}>
+              Stats included in prompt
+            </label>
+            <div
+              style={{
+                display: "flex",
+                background: "var(--surface2)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: 3,
+                gap: 3,
+              }}
+            >
+              {[
+                {
+                  key: "standard",
+                  label: "Standard",
+                  sub: "Pairing history only",
+                },
+                {
+                  key: "extended",
+                  label: "Extended",
+                  sub: "Pairing + individual strength + recent form",
+                },
+              ].map(({ key, label, sub }) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setStatsDepth(key);
+                    setPromptReady(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "7px 10px",
+                    borderRadius: 6,
+                    border:
+                      statsDepth === key
+                        ? "1px solid var(--border)"
+                        : "1px solid transparent",
+                    background:
+                      statsDepth === key ? "var(--surface)" : "transparent",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    textAlign: "left",
+                    transition: "all .15s",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color:
+                        statsDepth === key ? "var(--text)" : "var(--muted)",
+                      marginBottom: 1,
+                    }}
+                  >
+                    {label}
+                    {key === "extended" && (
+                      <span
+                        style={{
+                          marginLeft: 6,
+                          fontSize: 9,
+                          fontWeight: 700,
+                          padding: "1px 5px",
+                          borderRadius: 10,
+                          background: "var(--accent-dim)",
+                          color: "var(--accent)",
+                          border: "1px solid var(--accent-border)",
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        recommended
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color:
+                        statsDepth === key ? "var(--muted)" : "var(--muted2)",
+                    }}
+                  >
+                    {sub}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {statsDepth === "extended" && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 11,
+                  color: "var(--muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <span style={{ color: "var(--accent)", fontWeight: 700 }}>
+                  ℹ
+                </span>
+                Includes overall win% + last 3 months form with
+                STRONG/BALANCED/WEAK tier per player
+              </div>
+            )}
+          </div>
+
           {/* Generate button */}
           <button
             className="btn generate"
             onClick={handleGeneratePrompt}
             disabled={generating || selected.length < 4}
           >
-            {generating ? "⏳ Fetching stats…" : "⚡ Generate Prompt"}
+            {generating
+              ? statsDepth === "extended"
+                ? "⏳ Fetching stats…"
+                : "⏳ Generating…"
+              : "⚡ Generate Prompt"}
           </button>
 
-          {/* Prompt output — shown after generation */}
+          {/* Prompt output */}
           {promptReady && promptText && (
             <div style={{ marginTop: 14 }}>
-              {/* Header row: label + collapse + clear buttons */}
+              {/* Header row */}
               <div
                 style={{
                   display: "flex",
@@ -494,7 +761,6 @@ export default function ImportSchedulePage() {
                   <span style={{ fontSize: 11, color: "var(--muted)" }}>
                     {!promptCollapsed && "Select all · copy · paste into AI"}
                   </span>
-                  {/* Collapse / Expand toggle */}
                   <button
                     onClick={() => setPromptCollapsed((c) => !c)}
                     style={{
@@ -514,7 +780,6 @@ export default function ImportSchedulePage() {
                   >
                     {promptCollapsed ? "▼ Expand" : "▲ Collapse"}
                   </button>
-                  {/* Clear button */}
                   <button
                     onClick={handleClearPrompt}
                     style={{
@@ -535,7 +800,7 @@ export default function ImportSchedulePage() {
                 </div>
               </div>
 
-              {/* Prompt <pre> — hidden when collapsed */}
+              {/* Prompt pre block */}
               {!promptCollapsed && (
                 <div style={{ position: "relative" }}>
                   <pre
@@ -651,7 +916,7 @@ export default function ImportSchedulePage() {
             </button>
           </div>
 
-          {/* Feedback message */}
+          {/* Feedback */}
           {message && (
             <div
               style={{
@@ -700,7 +965,7 @@ function CopyButton({ text }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback: user can tap-to-select-all on the <pre>
+      /* fallback: user can tap-to-select-all */
     }
   }
   return (
