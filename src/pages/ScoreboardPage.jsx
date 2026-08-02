@@ -126,6 +126,328 @@ function comparisonLabel(filter) {
   }
 }
 
+// ── Analysis prompt — copied to clipboard via "Copy Analysis Prompt" button ──
+// Source: Badminton Performance Analysis Prompt Version 2
+// The HOW TO USE section is omitted — users specify the player themselves.
+const ANALYSIS_PROMPT = `==============================================================
+BADMINTON PERFORMANCE ANALYSIS PROMPT
+==============================================================
+
+DEFINITION OF TERMS
+--------------------
+Throughout this prompt, "PLAYER_NAME" refers to the specific
+player being analysed. Before running this analysis, the user
+will specify who PLAYER_NAME is — for example:
+  "Treat PLAYER_NAME as Nagu"
+  "Treat PLAYER_NAME as James and Bikram — generate a
+   separate report for each"
+
+All references to PLAYER_NAME below apply to each named
+individual in turn.
+
+==============================================================
+ROLE
+==============================================================
+
+You are an expert badminton performance analyst. Produce a
+comprehensive, evidence-based performance report for
+PLAYER_NAME, using only the structured JSON dataset that
+follows this prompt.
+
+==============================================================
+UNDERSTANDING THE JSON STRUCTURE
+==============================================================
+
+The JSON contains:
+
+  meta            — Dataset info, date range, generation date,
+                    total match count.
+
+  rules           — Thresholds and field definitions, including:
+                    · min_pair_matches  — minimum matches a
+                      pair must have played together before
+                      being included in pair analysis.
+                    · match_rating      — definition of the
+                      optional 1–5 star rating field on each
+                      match (see MATCH RATING section below).
+                    · authoritative_sections — states which
+                      section is authoritative for which
+                      purpose.
+
+  players         — Full list of all players in the group.
+
+  match_history   — Every completed match in the date range.
+                    Each match has: team_A, team_B, winners,
+                    score, match_date, match_rating.
+
+  pairing_stats   — Pre-computed win/loss records for player
+                    pairs. Each entry has: player, partner,
+                    wins, losses, matches, win_pct.
+                    ⚠ NOTE: This section is ONE-DIRECTIONAL.
+                    Each pair appears only once, filed under
+                    one player's name. See the CRITICAL
+                    PARTNERSHIP RULE below.
+
+==============================================================
+SCORE INTERPRETATION  —  READ CAREFULLY
+==============================================================
+
+  · The score format is always: "winning_points-losing_points"
+    Example: "21-12" means the winning team scored 21 and the
+    losing team scored 12.
+
+  · The score always represents the result from the WINNING
+    TEAM's perspective, regardless of whether that team is
+    listed as team_A or team_B.
+
+  · If a score is present:
+    — Calculate the margin (winning points minus losing points)
+    — Classify margins:
+        Narrow   : 1–4 points
+        Moderate : 5–7 points
+        Dominant : 8+ points
+    — Identify patterns of narrow losses or decisive wins.
+
+  · If a score is absent or null:
+    — Do NOT assume closeness or margin.
+    — Do NOT infer match quality from score alone.
+
+  · Scores above 21 (e.g. 22-20, 24-22, 25-23) indicate
+    extended play — treat these as narrow/competitive
+    regardless of point difference.
+
+  · NEVER reinterpret the score based on team order.
+    Trust that it is already winner-first.
+
+==============================================================
+MATCH RATING  —  NEW FIELD
+==============================================================
+
+Each match may include a "match_rating" field (integer 1–5)
+or null. The rating scale and null meaning are defined inside
+rules.match_rating in the JSON. Always read that definition
+first — do not assume a fixed scale.
+
+Current scale (as defined in rules.match_rating):
+  1 = Easy win — the losing team offered little resistance.
+  5 = Well-fought and intense — both teams were competitive
+      throughout. Reflects perceived match quality regardless
+      of the scoreline.
+  null = No rating given — not an indicator of quality.
+
+How to use match_rating in analysis:
+  · It is a SUPPLEMENTARY signal — use it to enrich score
+    margin interpretation, not replace it.
+  · A high-rated match (4–5) with a narrow score confirms
+    genuine competition.
+  · A high-rated match with a wide score suggests one team
+    dominated a tough opponent.
+  · A low-rated match (1–2) with a narrow score suggests
+    the losing team stopped competing rather than a close
+    contest.
+  · null ratings are common — especially for older data —
+    so never penalise or discount a match solely because
+    it lacks a rating.
+  · When rating data is sparse, state this explicitly and
+    do not over-interpret the available ratings.
+  · Do NOT use match_rating to override score margin facts.
+    Use it only to add context.
+
+==============================================================
+CRITICAL PARTNERSHIP RULE  —  SYMMETRIC SCAN REQUIRED
+==============================================================
+
+The pairing_stats section is ONE-DIRECTIONAL. Each pair is
+recorded only once, assigned to one player as "player" and
+the other as "partner". This means:
+
+  A pair like (Nagu + Krishna) may be stored under "Krishna"
+  not under "Nagu". If you only read Nagu's entries, you will
+  miss this partnership entirely.
+
+YOU MUST ALWAYS DO A SYMMETRIC SCAN:
+
+  Step 1 — Search pairing_stats for ALL entries where EITHER:
+             player = PLAYER_NAME   OR
+             partner = PLAYER_NAME
+
+  Step 2 — Also scan match_history directly to find every
+            partner PLAYER_NAME has played alongside.
+            Count matches, wins, and losses from raw match data.
+
+  Step 3 — Cross-reference both sources.
+            · If a pair appears in pairing_stats (either
+              direction): use those numbers as authoritative.
+            · If a pair appears in match_history but NOT in
+              pairing_stats at all: compute the record from
+              match_history.
+
+  Step 4 — Apply the min_pair_matches threshold AFTER this
+            full symmetric scan — never before.
+
+  Step 5 — State the total number of qualifying partnerships
+            found via this symmetric scan at the start of
+            Section 2 of the report.
+
+Skipping the symmetric scan is the single most common cause
+of incomplete partnership tables. Do not skip it.
+
+==============================================================
+ANALYSIS RULES  —  STRICT
+==============================================================
+
+  1. Base ALL conclusions strictly on the provided JSON.
+     Do NOT invent players, outcomes, scores, or statistics.
+
+  2. Numeric values in pairing_stats (wins, losses, win_pct)
+     are authoritative. Do NOT contradict them with narrative.
+
+  3. Apply min_pair_matches from rules.thresholds to decide
+     which pairs qualify for pair chemistry analysis.
+
+  4. If data is insufficient for a conclusion, state that
+     explicitly rather than speculating.
+
+  5. Distinguish between the full historical record and
+     recent scored-match trends. Do not conflate them.
+
+  6. match_rating enriches interpretation — it does not
+     override score or outcome data.
+
+  7. If the date range covers only a small number of sessions
+     or matches, be appropriately cautious about conclusions
+     and flag the limited sample size.
+
+==============================================================
+REPORT STRUCTURE
+==============================================================
+
+Produce the following sections in order. Do not skip any.
+
+--------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------
+
+Concise bullet-point highlights only:
+
+  · PLAYER_NAME's overall record in this dataset (W-L, win%)
+  · How PLAYER_NAME compares to group average win rate
+  · Number of qualifying partnerships found (symmetric scan)
+  · Strongest and weakest qualifying partnerships
+  · Key opponent advantages and disadvantages
+  · Whether scored matches show dominant, moderate, or close
+    patterns
+  · Match rating highlights if ratings are present
+  · Any critical flags (e.g., very small sample, volatile form)
+
+--------------------------------------------------------------
+2. INDIVIDUAL PLAYER ANALYSIS
+--------------------------------------------------------------
+
+Player: PLAYER_NAME
+
+  2a. Overall Performance
+  2b. Qualifying Partnership Count
+  2c. Consistency Assessment
+  2d. Partner Impact
+  2e. Opponent Impact
+  2f. Score Margin Insight (with match_rating context)
+  2g. Strength Patterns
+  2h. Weakness Patterns
+
+--------------------------------------------------------------
+3. PAIR CHEMISTRY ANALYSIS
+--------------------------------------------------------------
+
+Only for pairs meeting min_pair_matches threshold.
+Found via symmetric scan only.
+
+--------------------------------------------------------------
+4. OPPONENT & RIVALRY ANALYSIS
+--------------------------------------------------------------
+
+--------------------------------------------------------------
+5. TEMPORAL & TREND ANALYSIS
+--------------------------------------------------------------
+
+--------------------------------------------------------------
+6. SYSTEMIC PATTERNS
+--------------------------------------------------------------
+
+--------------------------------------------------------------
+7. STRATEGIC RECOMMENDATIONS
+--------------------------------------------------------------
+
+==============================================================
+OUTPUT REQUIREMENTS
+==============================================================
+
+  · Use clear headings and bullet points throughout.
+  · Do NOT reproduce raw match lists or repeat every score.
+  · Use evidence-based language throughout.
+  · Always distinguish conclusions based on:
+    (a) full historical pairing_stats
+    (b) recent scored match_history
+    (c) match_rating context (supplementary only)
+  · When rating data is sparse, say so and limit conclusions.
+  · Scores above 21 = extended play = narrow contest.
+  · State the qualifying partnership count in Section 2b.
+
+==============================================================
+PRE-FLIGHT VALIDATION  —  DO THIS BEFORE WRITING
+==============================================================
+
+  ☐ Symmetric scan completed for PLAYER_NAME.
+  ☐ match_history cross-checked for additional partners.
+  ☐ Qualifying partnership count determined and stated.
+  ☐ min_pair_matches threshold applied AFTER scan.
+  ☐ Score interpretation is winner-first throughout.
+  ☐ match_rating used as supplementary context only.
+  ☐ No narrative contradicts numeric pairing_stats values.
+  ☐ Extended-play scores (above 21) treated as narrow.
+  ☐ Sample size flagged if fewer than 3 sessions or 15 matches.
+
+==============================================================
+The JSON data follows immediately after this prompt or will be attached to the chat.
+==============================================================`;
+
+// ── Copy prompt button — clipboard only, no download ─────────────────────────
+function CopyPromptButton() {
+  const [copied, setCopied] = React.useState(false);
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(ANALYSIS_PROMPT);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      alert("Could not copy automatically. Please copy the prompt manually.");
+    }
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy the analysis prompt — paste into AI chat before pasting the exported JSON data"
+      style={{
+        background: "none",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        fontSize: 11,
+        color: copied ? "var(--success)" : "var(--muted2)",
+        textDecoration: "underline",
+        textDecorationStyle: "dotted",
+        textDecorationColor: copied ? "var(--success)" : "rgba(0,0,0,0.2)",
+        textUnderlineOffset: 2,
+        transition: "color .15s",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {copied ? "✓ Analysis prompt copied" : "📋 Copy analysis prompt"}
+    </button>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ScoreboardPage() {
@@ -957,6 +1279,7 @@ export default function ScoreboardPage() {
               );
             })()}
           </div>
+          <CopyPromptButton />
 
           {/* Custom filter panel — only shown when Custom is selected */}
           {periodSel === "custom" && (

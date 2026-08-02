@@ -581,3 +581,11 @@ export async function updateMatchPlayers(matchId, playerIds) {
 
   return { data, error };
 }
+
+export async function updateMatchRating(matchId, rating) {
+  const { data, error } = await supabase
+    .from("matches")
+    .update({ match_rating: rating ?? null })
+    .eq("id", matchId);
+  return { data, error };
+}

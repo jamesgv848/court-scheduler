@@ -4,14 +4,78 @@ import {
   recordTeamWinner,
   undoWinner,
   updateMatchPlayers,
+  updateMatchRating,
   deleteMatchById,
 } from "../api/supabase-actions";
+
+// ── StarRating component ──────────────────────────────────────────────────────
+// Used in both the winner dialog (during recording) and inline on the card footer
+// (for editing completed matches).
+//
+// Props:
+//   value      — current rating 1-5 or null
+//   onChange   — called with new rating (1-5) or null (clear)
+//   size       — "sm" (footer) | "md" (dialog)
+//   disabled   — greys out, no interaction
+function StarRating({ value, onChange, size = "md", disabled = false }) {
+  const [hovered, setHovered] = useState(null);
+
+  const starSize = size === "sm" ? 16 : 22;
+  const gap = size === "sm" ? 3 : 6;
+  const activeCol = "#f5a623"; // warm amber
+  const emptyCol = "#dde1e7";
+
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        gap,
+        alignItems: "center",
+        opacity: disabled ? 0.4 : 1,
+        pointerEvents: disabled ? "none" : "auto",
+      }}
+    >
+      {[1, 2, 3, 4, 5].map((n) => {
+        const filled = (hovered ?? value ?? 0) >= n;
+        return (
+          <button
+            key={n}
+            type="button"
+            onMouseEnter={() => !disabled && setHovered(n)}
+            onMouseLeave={() => !disabled && setHovered(null)}
+            onClick={() => {
+              if (disabled) return;
+              // Tapping the current exact value clears it
+              onChange(value === n ? null : n);
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: disabled ? "default" : "pointer",
+              fontSize: starSize,
+              lineHeight: 1,
+              color: filled ? activeCol : emptyCol,
+              transition: "color .1s",
+            }}
+            title={`${n} star${n > 1 ? "s" : ""}`}
+          >
+            ★
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function MatchCard({ match, playersMap, onChange }) {
   const [busy, setBusy] = useState(false);
 
   const [scoreInput, setScoreInput] = useState("");
   const [prevScoreInput, setPrevScoreInput] = useState("");
+  const [ratingInput, setRatingInput] = useState(null); // rating in winner dialog
 
   const [editOpen, setEditOpen] = useState(false);
   const [editPlayers, setEditPlayers] = useState([]);
@@ -36,9 +100,12 @@ export default function MatchCard({ match, playersMap, onChange }) {
   const teamAWins = hasWinner && teamA.some((id) => winnerIds.includes(id));
   const teamBWins = hasWinner && teamB.some((id) => winnerIds.includes(id));
 
+  // Current rating from match data (may be null)
+  const currentRating = match.match_rating ?? null;
+
   const nameOf = (id) => playersMap?.[id] || id;
 
-  // ── Score validation ────────────────────────────
+  // ── Score validation ──────────────────────────────────────────────────────
   function validateMatchScore(scoreText) {
     if (!scoreText) return null;
     const sets = scoreText
@@ -83,12 +150,13 @@ export default function MatchCard({ match, playersMap, onChange }) {
     setScoreInput(v);
   }
 
-  // ── Record winner ────────────────────────────────
+  // ── Record winner ─────────────────────────────────────────────────────────
   function openWinnerConfirm(team) {
     if (hasWinner || busy) return;
     setPendingTeam(team);
     setScoreInput("21-");
     setPrevScoreInput("21-");
+    setRatingInput(null); // start with no rating
     setWinnerOpen(true);
   }
 
@@ -106,15 +174,23 @@ export default function MatchCard({ match, playersMap, onChange }) {
     }
     setBusy(true);
     try {
+      // recordTeamWinner uses an RPC — does not support rating param
       const { error } = await recordTeamWinner(
         match.id,
         pendingTeam,
         normalized || null,
       );
       if (error) throw error;
+
+      // Save rating separately if user tapped stars
+      if (ratingInput) {
+        await updateMatchRating(match.id, ratingInput);
+      }
+
       setWinnerOpen(false);
       setScoreInput("");
       setPrevScoreInput("");
+      setRatingInput(null);
       onChange?.();
       window.dispatchEvent(new Event("scores-changed"));
     } catch {
@@ -124,12 +200,31 @@ export default function MatchCard({ match, playersMap, onChange }) {
     }
   }
 
-  // ── Undo ─────────────────────────────────────────
+  // ── Inline rating update (Option B — on completed card) ───────────────────
+  async function handleInlineRating(newRating) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { error } = await updateMatchRating(match.id, newRating);
+      if (error) throw error;
+      onChange?.();
+    } catch {
+      alert("Failed to update rating");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Undo ──────────────────────────────────────────────────────────────────
   async function doUndo() {
     setBusy(true);
     try {
       const { error } = await undoWinner(match.id);
       if (error) throw error;
+
+      // Clear rating separately — undoWinner RPC may not touch match_rating
+      await updateMatchRating(match.id, null);
+
       setUndoOpen(false);
       onChange?.();
       window.dispatchEvent(new Event("scores-changed"));
@@ -140,7 +235,7 @@ export default function MatchCard({ match, playersMap, onChange }) {
     }
   }
 
-  // ── Delete ───────────────────────────────────────
+  // ── Delete ────────────────────────────────────────────────────────────────
   async function doDeleteMatch() {
     setBusy(true);
     try {
@@ -156,7 +251,7 @@ export default function MatchCard({ match, playersMap, onChange }) {
     }
   }
 
-  // ── Edit players ─────────────────────────────────
+  // ── Edit players ──────────────────────────────────────────────────────────
   function openEdit() {
     setEditPlayers([...pids]);
     setEditOpen(true);
@@ -182,7 +277,7 @@ export default function MatchCard({ match, playersMap, onChange }) {
     }
   }
 
-  // ── Centered dialog ──────────────────────────────
+  // ── Dialog wrapper ────────────────────────────────────────────────────────
   function Dialog({ onClose, children }) {
     return (
       <div
@@ -216,7 +311,7 @@ export default function MatchCard({ match, playersMap, onChange }) {
     );
   }
 
-  // ── Render ────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
       <div className={`match-card${hasWinner ? " match-completed" : ""}`}>
@@ -263,50 +358,115 @@ export default function MatchCard({ match, playersMap, onChange }) {
           </button>
         </div>
 
-        <div className="match-footer">
-          <div className="footer-left">
-            {hasWinner ? (
-              <>
-                <span className="footer-status done">✓</span>
-                {match.score_text && (
-                  <span className="score-display">{match.score_text}</span>
-                )}
-              </>
-            ) : (
-              <span className="footer-status pending">⏳</span>
-            )}
-          </div>
-          <div className="footer-actions">
-            {hasWinner ? (
-              <button
-                className="footer-icon-btn"
-                title="Clear result"
-                onClick={() => setUndoOpen(true)}
-                disabled={busy}
-              >
-                ↩
-              </button>
-            ) : (
-              <>
+        {/* ── Footer — two-row layout on completed cards ── */}
+        <div
+          className="match-footer"
+          style={{ flexDirection: "column", alignItems: "stretch", gap: 0 }}
+        >
+          {/* Row 1: status + score + undo/edit/delete */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div className="footer-left">
+              {hasWinner ? (
+                <>
+                  <span className="footer-status done">✓</span>
+                  {match.score_text && (
+                    <span className="score-display">{match.score_text}</span>
+                  )}
+                </>
+              ) : (
+                <span className="footer-status pending">⏳</span>
+              )}
+            </div>
+            <div className="footer-actions">
+              {hasWinner ? (
                 <button
                   className="footer-icon-btn"
-                  title="Edit players"
-                  onClick={openEdit}
+                  title="Clear result"
+                  onClick={() => setUndoOpen(true)}
                   disabled={busy}
                 >
-                  ✏️
+                  ↩
                 </button>
-                <button
-                  className="footer-icon-btn danger"
-                  title="Remove game"
-                  onClick={() => setDeleteOpen(true)}
-                  disabled={busy}
-                >
-                  🗑
-                </button>
-              </>
-            )}
+              ) : (
+                <>
+                  <button
+                    className="footer-icon-btn"
+                    title="Edit players"
+                    onClick={openEdit}
+                    disabled={busy}
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    className="footer-icon-btn danger"
+                    title="Remove game"
+                    onClick={() => setDeleteOpen(true)}
+                    disabled={busy}
+                  >
+                    🗑
+                  </button>
+                </>
+              )}
+            </div>
           </div>
+
+          {/* Row 2: star rating — only on completed cards */}
+          {hasWinner && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                paddingTop: 6,
+                borderTop: "1px solid var(--border)",
+                marginTop: 6,
+              }}
+            >
+              <StarRating
+                value={currentRating}
+                onChange={handleInlineRating}
+                size="sm"
+                disabled={busy}
+              />
+              {currentRating && (
+                <button
+                  type="button"
+                  onClick={() => handleInlineRating(null)}
+                  disabled={busy}
+                  title="Clear rating"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: "0 2px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    color: "var(--muted2)",
+                    lineHeight: 1,
+                    marginLeft: 2,
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+              {!currentRating && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--muted2)",
+                    marginLeft: 2,
+                  }}
+                >
+                  Rate game
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -338,7 +498,9 @@ export default function MatchCard({ match, playersMap, onChange }) {
               {pendingTeam?.map(nameOf).join(" & ")}
             </div>
           </div>
-          <div style={{ marginBottom: 18 }}>
+
+          {/* Score input */}
+          <div style={{ marginBottom: 16 }}>
             <div
               style={{
                 fontSize: 10,
@@ -386,6 +548,44 @@ export default function MatchCard({ match, playersMap, onChange }) {
               Type 21 → dash appears · e.g. 21-15 or 21-15,22-20
             </div>
           </div>
+
+          {/* ── Star rating — optional in dialog ── */}
+          <div style={{ marginBottom: 20 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--muted)",
+                textTransform: "uppercase",
+                letterSpacing: 0.6,
+                textAlign: "center",
+                marginBottom: 10,
+              }}
+            >
+              Rate this game (optional)
+            </div>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <StarRating
+                value={ratingInput}
+                onChange={setRatingInput}
+                size="md"
+              />
+            </div>
+            {ratingInput && (
+              <div
+                style={{
+                  textAlign: "center",
+                  marginTop: 6,
+                  fontSize: 11,
+                  color: "var(--muted2)",
+                }}
+              >
+                {ratingInput} star{ratingInput > 1 ? "s" : ""} — tap same star
+                to clear
+              </div>
+            )}
+          </div>
+
           <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn"
@@ -425,7 +625,8 @@ export default function MatchCard({ match, playersMap, onChange }) {
             <div
               style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}
             >
-              Remove the recorded winner and score for Game #{match.match_index}
+              Remove the recorded winner, score
+              {currentRating ? " and rating" : ""} for Game #{match.match_index}
               .
             </div>
           </div>
@@ -503,10 +704,6 @@ export default function MatchCard({ match, playersMap, onChange }) {
             { label: "Team B · P1", idx: 2, isA: false },
             { label: "Team B · P2", idx: 3, isA: false },
           ];
-          // Warn if any two slots have the same player — but do NOT disable any options.
-          // All players in playersMap are always available in every dropdown so that
-          // full team reshuffles (e.g. moving a player from one team to the other) work
-          // without restriction. The editor is responsible for valid selections.
           const hasDupe = new Set(editPlayers.filter(Boolean)).size < 4;
           return (
             <Dialog onClose={() => !busy && setEditOpen(false)}>
