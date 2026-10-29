@@ -68,11 +68,99 @@ function StarRating({ value, onChange, size = "md", disabled = false }) {
   );
 }
 
+// ── Score formats & validation ────────────────────────────────────────────────
+// "21" — classic: first to 21, win by 2, hard cap at 30 (30-29).
+// "15" — new:     first to 15, deuce at 14-14 (win by 2),
+//                 sudden death at 20-20 → first to 21 wins (21-20).
+//
+// Valid finished games in the 15-point format (winner-loser):
+//   15-0 … 15-13
+//   16-14, 17-15, 18-16, 19-17, 20-18   (2-point lead after deuce)
+//   21-19, 21-20                        (cap: 20-19 → 21-19, 20-20 → 21-20)
+const SCORE_FORMATS = {
+  21: { label: "21-point", target: 21, example: "21-15", multi: "21-15,22-20" },
+  15: { label: "15-point", target: 15, example: "15-9", multi: "15-9,17-15" },
+};
+
+const FORMAT_STORAGE_KEY = "ib-score-format";
+
+function loadSavedFormat() {
+  try {
+    const v = window.localStorage.getItem(FORMAT_STORAGE_KEY);
+    return v === "15" || v === "21" ? v : "21";
+  } catch {
+    return "21";
+  }
+}
+
+function saveFormat(fmt) {
+  try {
+    window.localStorage.setItem(FORMAT_STORAGE_KEY, fmt);
+  } catch {
+    /* ignore */
+  }
+}
+
+// Returns an error string, or null when valid. Empty score is valid (optional).
+function validateSet21(winner, loser) {
+  if (winner < 21) return "Winning score must be at least 21";
+  if (winner > 30) return "Maximum score allowed is 30";
+  if (winner < 30 && winner - loser < 2)
+    return "Set must be won by at least 2 points";
+  if (winner === 30 && loser !== 29) return "At 29-29, next point wins (30-29)";
+  return null;
+}
+
+function validateSet15(winner, loser) {
+  if (winner < 15) return "Winning score must be at least 15";
+  if (winner > 21) return "Maximum score allowed is 21";
+
+  // Straight win to 15 — opponent must be on 13 or fewer
+  if (winner === 15) {
+    if (loser <= 13) return null;
+    return "From 14-14 you need a 2-point lead (e.g. 16-14)";
+  }
+
+  // 16–20: only reachable from deuce, so the lead is exactly 2
+  if (winner <= 20) {
+    if (loser === winner - 2) return null;
+    if (loser === winner - 1) return "Set must be won by at least 2 points";
+    return `Not a valid score — game ends at 15, or by 2 points after 14-14 (e.g. ${winner}-${winner - 2})`;
+  }
+
+  // 21: cap — 21-19 (from 20-19) or 21-20 (sudden death at 20-20)
+  if (loser === 19 || loser === 20) return null;
+  return "21 is only reached as 21-19 or 21-20 (sudden death at 20-20)";
+}
+
+function validateMatchScore(scoreText, format = "21") {
+  if (!scoreText) return null;
+  const sets = scoreText
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (sets.length === 0) return "Invalid score format";
+  const example = format === "15" ? "15-9" : "21-18";
+  for (const set of sets) {
+    if (!/^\d{1,2}-\d{1,2}$/.test(set))
+      return `Each set must look like ${example}`;
+    const [winner, loser] = set.split("-").map(Number);
+    if (winner <= loser) return "Score must be written as winner-loser";
+    const err =
+      format === "15"
+        ? validateSet15(winner, loser)
+        : validateSet21(winner, loser);
+    if (err) return err;
+  }
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function MatchCard({ match, playersMap, onChange }) {
   const [busy, setBusy] = useState(false);
 
+  const [scoreFormat, setScoreFormat] = useState(loadSavedFormat); // "21" | "15"
   const [scoreInput, setScoreInput] = useState("");
   const [prevScoreInput, setPrevScoreInput] = useState("");
   const [ratingInput, setRatingInput] = useState(null); // rating in winner dialog
@@ -105,29 +193,7 @@ export default function MatchCard({ match, playersMap, onChange }) {
 
   const nameOf = (id) => playersMap?.[id] || id;
 
-  // ── Score validation ──────────────────────────────────────────────────────
-  function validateMatchScore(scoreText) {
-    if (!scoreText) return null;
-    const sets = scoreText
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (sets.length === 0) return "Invalid score format";
-    for (const set of sets) {
-      if (!/^\d{1,2}-\d{1,2}$/.test(set))
-        return "Each set must look like 21-18";
-      const [winner, loser] = set.split("-").map(Number);
-      if (winner <= loser) return "Score must be written as winner-loser";
-      if (winner < 21) return "Winning score must be at least 21";
-      if (winner > 30) return "Maximum score allowed is 30";
-      if (winner < 30 && winner - loser < 2)
-        return "Set must be won by at least 2 points";
-      if (winner === 30 && loser !== 29)
-        return "At 29-29, next point wins (30-29)";
-    }
-    return null;
-  }
-
+  // ── Score input ───────────────────────────────────────────────────────────
   function handleScoreChange(e) {
     let v = e.target.value;
     if (!v) {
@@ -154,19 +220,36 @@ export default function MatchCard({ match, playersMap, onChange }) {
   function openWinnerConfirm(team) {
     if (hasWinner || busy) return;
     setPendingTeam(team);
-    setScoreInput("21-");
-    setPrevScoreInput("21-");
+    setScoreInput(`${scoreFormat}-`);
+    setPrevScoreInput(`${scoreFormat}-`);
     setRatingInput(null); // start with no rating
     setWinnerOpen(true);
   }
 
+  // Switch between 21 / 15-point. If the field still holds only the untouched
+  // prefill ("21-" / "15-" or empty), swap the prefill; otherwise leave what
+  // the user typed alone (it is re-validated against the new format on confirm).
+  function switchFormat(fmt) {
+    if (fmt === scoreFormat) return;
+    const untouched = !scoreInput || scoreInput.trim() === `${scoreFormat}-`;
+    setScoreFormat(fmt);
+    saveFormat(fmt);
+    if (untouched) {
+      setScoreInput(`${fmt}-`);
+      setPrevScoreInput(`${fmt}-`);
+    }
+  }
+
   async function doRecordWinner() {
     if (!pendingTeam) return;
+    // The untouched prefill ("21-" / "15-") means "no score entered"
     let normalized =
-      scoreInput && scoreInput.trim() === "21-" ? "" : scoreInput.trim();
+      scoreInput && scoreInput.trim() === `${scoreFormat}-`
+        ? ""
+        : scoreInput.trim();
     if (normalized.endsWith(",")) normalized = normalized.slice(0, -1);
     if (normalized) {
-      const err = validateMatchScore(normalized);
+      const err = validateMatchScore(normalized, scoreFormat);
       if (err) {
         alert(err);
         return;
@@ -501,6 +584,49 @@ export default function MatchCard({ match, playersMap, onChange }) {
 
           {/* Score input */}
           <div style={{ marginBottom: 16 }}>
+            {/* Format toggle */}
+            <div
+              role="group"
+              aria-label="Game format"
+              style={{
+                display: "flex",
+                gap: 4,
+                padding: 3,
+                marginBottom: 12,
+                background: "var(--surface3, var(--surface2))",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+              }}
+            >
+              {Object.entries(SCORE_FORMATS).map(([key, f]) => {
+                const active = scoreFormat === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => switchFormat(key)}
+                    aria-pressed={active}
+                    style={{
+                      flex: 1,
+                      padding: "7px 0",
+                      borderRadius: 8,
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: active ? "#fff" : "transparent",
+                      color: active ? "var(--primary)" : "var(--muted)",
+                      boxShadow: active ? "0 1px 3px rgba(0,0,0,.12)" : "none",
+                      transition: "all .12s",
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </div>
+
             <div
               style={{
                 fontSize: 10,
@@ -519,7 +645,7 @@ export default function MatchCard({ match, playersMap, onChange }) {
               inputMode="numeric"
               value={scoreInput}
               onChange={handleScoreChange}
-              placeholder="21-15"
+              placeholder={SCORE_FORMATS[scoreFormat].example}
               autoFocus
               style={{
                 display: "block",
@@ -543,9 +669,18 @@ export default function MatchCard({ match, playersMap, onChange }) {
                 color: "var(--muted2)",
                 textAlign: "center",
                 marginTop: 6,
+                lineHeight: 1.5,
               }}
             >
-              Type 21 → dash appears · e.g. 21-15 or 21-15,22-20
+              Type {scoreFormat} → dash appears · e.g.{" "}
+              {SCORE_FORMATS[scoreFormat].example} or{" "}
+              {SCORE_FORMATS[scoreFormat].multi}
+              {scoreFormat === "15" && (
+                <>
+                  <br />
+                  Deuce at 14-14 (win by 2) · sudden death at 20-20 → 21-20
+                </>
+              )}
             </div>
           </div>
 
