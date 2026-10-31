@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env.production)",
+      "Read(./.env.production.*)",
+      "Read(./.env.prod*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase link:*)",
+      "Bash(supabase db dump:*)",
+      "Bash(supabase db reset:*)",
+      "Bash(psql:*)",
+      "Bash(pg_dump:*)",
+      "Bash(pg_restore:*)",
+      "Bash(vercel:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push origin HEAD:main:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git checkout main:*)",
+      "Bash(git switch main:*)",
+      "Edit(./src/api/**)",
+      "Edit(./supabase/**)"
+    ]
+  }
+}
