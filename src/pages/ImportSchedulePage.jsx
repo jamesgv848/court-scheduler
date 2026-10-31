@@ -215,7 +215,8 @@ Player count: ${playerCount}
 Generate a schedule that maximizes variety in partners and opponents.
 Ensure every player gets approximately the same number of matches and rest slots. Also the rest slots are distributed fairly equal consecutive rounds.
 (e.g. if 10 rounds and 5 players, each should play about 8 matches and rest about 2 times).
-Avoid repeating the same pairs too often.
+Avoid repeating the same pairs too often. 
+**Look for additional information at the end of the prompt, which overrides to scheduling intructions**
 ${
   hasStrength
     ? `
@@ -237,7 +238,7 @@ ${pairingStatsText}
 ━━━ OUTPUT ━━━
 
 Output the JSON schedule only.
-- Single line, no line breaks inside the JSON.
+- Inside a Markdown code block. The JSON itself must be a single line with no line breaks.
 - teamA and teamB always have exactly 2 players each.
 - "resting" only on court 1 entry, only when someone rests, omit otherwise.
 
